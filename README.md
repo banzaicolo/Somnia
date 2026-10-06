@@ -128,6 +128,18 @@ pytest          # pyproject.toml 已配置好路径，直接跑就是全部 48 �
   <img src="assets/body_shape_proof.png" width="85%" alt="人形证明图">
 </p>
 
+完整标定链（左上真相 → 右上脏数据 → 左下不补温度 → 右下校准后误差图）：
+
+<p align="center">
+  <img src="assets/calibration_full.png" width="85%" alt="标定全流程对比">
+</p>
+
+睡姿分类的训练曲线与混淆矩阵：
+
+<p align="center">
+  <img src="assets/pose_training.png" width="85%" alt="睡姿分类训练结果">
+</p>
+
 ## 🗺️ 路线图
 
 - [x] 传感器模拟器（高斯体压 + 5 种毛病 + 三种睡姿）
