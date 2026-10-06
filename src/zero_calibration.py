@@ -62,6 +62,7 @@ from sensor_config import (
     OUT_DIR, SEED, FILE_ZERO_CAL,
     make_ideal_pressure,
 )
+from verdict import describe_improvement
 
 # 温漂单独调大：让"脏"得更明显、一眼看得出区别。
 # （真实产品没这么夸张，这里是为了教学看效果。改这个不影响其他脚本。）
@@ -189,7 +190,9 @@ def main():
 
     im2 = axes[1, 2].imshow(err_cal, cmap="RdBu_r", interpolation="nearest",
                             vmin=-EMAX, vmax=EMAX)
-    axes[1, 2].set_title("校准后的误差\n（几乎全白=修干净了）", fontsize=15)
+    # 标题不再写死「几乎全白=修干净了」这种主观词，改成直接显示数字。
+    # 白不白、干不干净，你拿数字说话、拿眼睛看图判断，程序不替你下结论。
+    axes[1, 2].set_title(f"校准后的误差\n（平均误差 {err_after:.1f}）", fontsize=15)
     axes[1, 2].set_xticks([])
     axes[1, 2].set_yticks([])
     fig.colorbar(im2, ax=axes[1, 2], fraction=0.046, label="误差")
@@ -217,8 +220,10 @@ def main():
 
     print(f" 产出图：{path}")
     print()
-    print(" ✅ 完成。打开图看：最左边是真相，中间是脏数据，")
-    print("    最右边是'减一下'之后的结果 —— 是不是跟左边像多了？")
+    # 结尾不再写死「是不是跟左边像多了」，改成根据 improve 数字动态判断。
+    # 修没修干净，由数字分档决定，程序如实说。
+    print(f" ✅ 完成。误差缩小了 {improve:.0f}%：{describe_improvement(improve)}")
+    print("    （图：最左是真相，中间是脏数据，最右是校准后，可自行对照）")
 
 
 if __name__ == "__main__":

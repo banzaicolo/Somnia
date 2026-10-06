@@ -41,6 +41,7 @@ from sensor_config import (
     make_ideal_pressure,
 )
 import calibration as cal
+from verdict import describe_improvement
 
 
 # ---- 标定场景的参数（都是"真实世界会有"的数）----
@@ -160,7 +161,11 @@ def main():
     plot(ideal, raw, cleaned_no_temp, cleaned, err_raw, err_no_temp, err_clean)
     print("[5/5] 对比图已生成，去 outputs/ 打开 calibration_full.png")
     print()
-    print(" ✅ 完成。右下角误差图：校准前一片红，完整校准后几乎全白。")
+    # 结尾不再写死「一片红…几乎全白」，改成根据误差数字动态判断。
+    improve_full = cal.improvement(err_raw, err_clean)
+    print(f" ✅ 完成。完整校准后平均误差 {err_clean:.1f}，"
+          f"误差缩小 {improve_full:.0f}%：{describe_improvement(improve_full)}")
+    print("    （右下角误差图：红=读数偏高，蓝=偏低，白=准确，可自行对照）")
 
 
 def plot(ideal, raw, no_temp, cleaned, err_raw, err_no_temp, err_clean):

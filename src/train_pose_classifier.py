@@ -41,6 +41,7 @@ plt.rcParams["axes.unicode_minus"] = False
 from sensor_config import GRID_W, GRID_H, POSE_NAMES, POSE_LABELS_CN, OUT_DIR
 from pose_dataset import generate_dataset, split_train_test
 from mlp import TinyMLP
+from verdict import render_pose_verdict
 
 
 # ---- 训练超参数的「默认值」（想改不用改代码，命令行传参即可，见文件底部）----
@@ -165,16 +166,27 @@ def main(n_per_class=N_PER_CLASS, n_hidden=N_HIDDEN, n_epoch=N_EPOCH,
     print(f"  坏传感器考试（增益+基线+串扰）：{acc_dirty*100:.1f}%")
     print(f"  标定洗回后考试　　　　　　　：{acc_rescued*100:.1f}%")
 
-    # ---- 诚实结论（实测出来的，不是编的）----
+    # ---- 动态结论：程序根据上面三个数字自己说话，不写死 ----
+    # 这里调用了「结论生成器」render_pose_verdict：它拿 test_acc /
+    # acc_dirty / acc_rescued 三个数字去套判断规则，生成这次该说什么。
+    # 数字变，结论就跟着变——不会再出现"数字崩了还在喊鲁棒"的瞎话。
     print()
-    print(" 诚实结论：这个演示任务里，模型对毛病出乎意料地鲁棒——")
-    print("   因为三种睡姿的「形状」差异太大（侧卧偏一侧 vs 仰卧居中），")
-    print("   模型分类主要靠「哪里亮」，对「多亮」（幅度）不敏感。")
+    print(" 本次实验结论（程序根据上面的数字自动生成，非写死）：")
     print()
-    print(" 但别高兴太早——标定真正的不可替代性在「看绝对压力值」的任务：")
-    print("   压疮预警：组织长期受压 >32 mmHg 会缺血损伤。")
-    print("   如果传感器增益漂了 +30%，真实 25（安全）会被读成 32.5（危险）。")
-    print("   分类可以容忍毛病，量化任务一点都不能——这就是标定的价值线。")
+    for line in render_pose_verdict(test_acc, acc_dirty, acc_rescued):
+        print("   " + line)
+    print()
+    # 下面这段是「背景知识」——固定的讲解，不是本次实验的结论。
+    # 它解释的是"为什么会有上面那种现象"，跟数字无关，所以可以写死，
+    # 但要明确标注：这是知识点，不是结论。
+    print(" 附 · 背景知识（固定讲解，不是本次结论）：")
+    print("   三种睡姿的「形状」差异很大（侧卧偏一侧 vs 仰卧居中），")
+    print("   模型分类主要靠「哪里亮」，对「多亮」（幅度）不敏感——")
+    print("   所以它对幅度类的毛病（增益、基线）天然免疫。")
+    print("   但标定在「看绝对压力值」的任务里不可替代：压疮预警中，")
+    print("   组织长期受压 >32 mmHg 会缺血损伤；增益漂 +30% 会把安全的")
+    print("   25 mmHg 读成危险的 32.5 mmHg。分类可容忍毛病，量化任务")
+    print("   一点都不能——这就是标定的价值线。")
 
 
 def plot(losses, train_accs, cm, classes, test_acc):

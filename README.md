@@ -2,7 +2,7 @@
 
 ![Python](https://img.shields.io/badge/Python-3.9%2B-blue)
 ![License](https://img.shields.io/badge/License-MIT-green)
-![Tests](https://img.shields.io/badge/tests-48%20passed-brightgreen)
+![Tests](https://img.shields.io/badge/tests-72%20passed-brightgreen)
 
 > A no-hardware playground for flexible pressure-sensor simulation, calibration & edge deployment.
 >
@@ -66,7 +66,7 @@ python src/download_pupu.py full
 
 ```bash
 pip install -r requirements-dev.txt
-pytest          # pyproject.toml 已配置好路径，直接跑就是全部 48 个测试
+pytest          # pyproject.toml 已配置好路径，直接跑就是全部 72 个测试
 ```
 
 测试覆盖：五种毛病叠加、四招标定的数学正确性（串扰往返、迟滞逆模型、增益还原）、三种睡姿的形状特征（侧卧偏一侧 / 仰卧对称）、神经网络能否学会异或、数据集可复现且不泄题。
@@ -148,7 +148,7 @@ pytest          # pyproject.toml 已配置好路径，直接跑就是全部 48 �
 - [x] 边缘主控骨架（采集 → 推理 → 报警，含断线重连 + 看门狗）
 - [x] **睡姿分类模型**（纯 numpy 手写神经网络，测试集 100%）
 - [x] **PoPu 真实数据下载入口**（CC0 可商用）
-- [x] 测试套件（48 项）+ CI
+- [x] 测试套件（72 项）+ CI
 - [ ] 用 PoPu 真实数据训练（替换合成数据）
 - [ ] 增益标定的「真硬件版」：多帧平均去噪 + 砝码自动标定流程
 - [ ] 压疮风险量化任务（压力×时长，对标定最敏感的场景）
@@ -166,11 +166,12 @@ pytest          # pyproject.toml 已配置好路径，直接跑就是全部 48 �
 │   ├── zero_calibration.py       # 零点校准单独演示（入门版）
 │   ├── pose_dataset.py           # 睡姿合成数据集（可无限造）
 │   ├── mlp.py                    # ⭐ 纯 numpy 手写神经网络
+│   ├── verdict.py                # 结论生成器（数字→结论，规则写死、结论动态）
 │   ├── train_pose_classifier.py  # 训练入口（支持命令行调参 + 日志）
 │   ├── download_pupu.py          # PoPu 真实数据下载器
 │   ├── body_shape_proof.py       # 人形证明图
 │   └── main_controller.py        # 边缘主控骨架
-├── tests/                        # 48 个测试
+├── tests/                        # 72 个测试
 ├── assets/                       # README 用的示例图
 ├── examples/                     # 示例输出（标准答案 + 脏数据）
 ├── .github/workflows/            # CI 自动跑测试
