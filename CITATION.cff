@@ -1,9 +1,8 @@
 cff-version: 1.2.0
-message: "如果你在研究中用到了这个项目，请这样引用它。"
-title: "AI 医疗床 · 传感器标定起步包"
+message: "If you use this project in your research, please cite it as follows."
+title: "PressureLab: A No-Hardware Playground for Pressure-Sensor Simulation and Calibration"
 authors:
-  - family-names: "Wang"
-    given-names: "Zhenlyu"
+  - name: "PressureLab Contributors"
 version: 0.1.0
 date-released: "2026-10-06"
 license: MIT

@@ -28,10 +28,10 @@
 
 跑完之后，会在「outputs」文件夹里生成：
 
-  1. 图1_体压与传感器毛病.png  —— 4 张对比图，看每个毛病往里加了什么
-  2. 图2_迟滞回线.png          —— 一个"加载-卸载"循环，看传感器"记仇"
-  3. 理想体压.csv               —— 人真实压上去的样子（这是"标准答案"）
-  4. 传感器读数.csv             —— 传感器实际读到的（这是"脏数据"）
+  1. imperfections.png     —— 4 张对比图，看每个毛病往里加了什么
+  2. hysteresis_curve.png  —— 一个"加载-卸载"循环，看传感器"记仇"
+  3. ideal_pressure.csv    —— 人真实压上去的样子（这是"标准答案"）
+  4. sensor_readings.csv   —— 传感器实际读到的（这是"脏数据"）
 
 【怎么运行】
 
@@ -56,92 +56,23 @@ plt.rcParams["axes.unicode_minus"] = False   # 让负号正常显示
 
 
 # ============================================================================
-# 第一部分：参数区（所有"旋钮"都在这，想改只改这里）
+# 第一部分：参数区（所有"旋钮"统一放在 src/sensor_config.py 里）
 # ============================================================================
-
-# ---- 传感器阵列的尺寸 ----
-GRID_W = 12   # 横向有多少个感应点（列）
-GRID_H = 8    # 纵向有多少个感应点（行）
-              # 12×8 = 96 个点，跟你那个主控骨架里的 96 个点正好对上
-
-# ---- 人体各部位的压力参数 ----
-# 人仰卧时，不是全身均匀压下去，而是几个"凸起的部位"压得最重：
-# 头、肩胛、屁股、脚后跟。每个部位用"一个高斯椭圆"来模拟——
-# 高斯椭圆就是"中间高、四周慢慢变矮"的一座小鼓包，跟真实压力分布很像。
-# 每个部位的参数：(名字, 中心x, 中心y, 宽sx, 高sy, 峰值, 旋转角度)
-# x/y 的单位是"感应点编号"，比如 6 就是横向正中间那个点。
-BODY_PARTS = [
-    ("头部",   6.0, 1.0, 1.8, 1.0, 35, 0),
-    ("肩胛",   6.0, 3.0, 2.6, 1.6, 80, 0),
-    ("臀部",   6.0, 5.3, 2.8, 1.8, 110, 0),
-    ("脚后跟", 6.0, 7.2, 1.4, 0.7, 30, 0),
-]
-
-# ---- 传感器"毛病"的强度（每个都能单独调，看它单独会造成什么）----
-
-# 毛病① 批次不一致：同一批生产的传感器，每个灵敏度不一样。
-#   真实世界里，两个"一模一样"的传感器，对同样的压力，读数可能差 15%。
-#   这就是为什么要"逐个标定"。这里 0.15 就是 15% 的意思。
-SENS_GAIN_STD = 0.15
-
-# 毛病② 温漂：温度一变，传感器基线就整体偏移。
-#   夏天和冬天，没人躺在上面，读数都不是 0。这个值越大，抬得越狠。
-TEMP_DRIFT = 12
-
-# 毛病③ 零点漂移：用久了（比如三个月），每个点慢慢"自己偏了"。
-#   哪怕没人躺，读数也会从 0 慢慢飘走。这里模拟"每个点随机偏 0~8"。
-ZERO_DRIFT_MAX = 8
-
-# 毛病④ 噪声：信号里随机的小抖动，像老电视的雪花。
-NOISE_STD = 3
-
-# 毛病⑤ 串扰：相邻感应点会互相"漏电"，你压 A 点，旁边的 B 点也读到了。
-#   0.1 表示 10% 的信号漏给邻居。这是阵列传感器最经典的问题。
-CROSSTALK = 0.10
-
-# ---- 迟滞回线的参数（图2 用）----
-# 迟滞（Hysteresis）是柔性传感器最"阴"的毛病：同一个压力，
-# "加压时"和"减压时"的读数不一样，像橡胶被压久了回弹不过来。
-HYSTERESIS = 8     # 回线宽度：加压和减压之间能差多少
+# 想改网格尺寸、身体部位、传感器毛病强度，去改 sensor_config.py 那一个文件。
+# 这里 import 进来，本脚本和其他脚本就拿到同一套参数，不会各改各的。
+from sensor_config import (
+    GRID_W, GRID_H, BODY_PARTS,
+    SENS_GAIN_STD, TEMP_DRIFT, ZERO_DRIFT_MAX, NOISE_STD, CROSSTALK, HYSTERESIS,
+    OUT_DIR, SEED,
+    FILE_IMPERFECTIONS, FILE_HYSTERESIS, FILE_IDEAL_CSV, FILE_RAW_CSV,
+    make_ideal_pressure,
+)
 
 
 # ============================================================================
 # 第二部分：核心函数
 # ============================================================================
-
-
-def make_ideal_pressure(w, h, parts):
-    """
-    生成"理想体压图"——这是标准答案：人真实压上去应该长这样。
-
-    做法：把每个身体部位看成一座高斯小鼓包，全部叠在一起。
-
-    参数：
-      w, h  —— 阵列宽、高
-      parts —— BODY_PARTS 那个列表
-    返回：一个 h 行 w 列的二维数组（就是一张"图"），数值越大压力越大
-    """
-    # np.mgrid 生成坐标网格。yy 是每个点的"行号"，xx 是"列号"。
-    yy, xx = np.mgrid[0:h, 0:w]
-    img = np.zeros((h, w))   # 先造一张全 0 的图
-
-    for name, cx, cy, sx, sy, amp, ang in parts:
-        # 高斯椭圆的公式：先把坐标平移到"以鼓包中心为原点"
-        dx = xx - cx
-        dy = yy - cy
-
-        # 如果要转角度，就把坐标旋转一下（这里默认 0 度，等于没转，
-        # 但保留了这行，以后想模拟侧躺、斜躺就能用上）
-        a = np.cos(np.radians(ang))
-        b = np.sin(np.radians(ang))
-        xr = dx * a + dy * b
-        yr = -dx * b + dy * a
-
-        # 二维高斯：中心 = amp，往四周按 sx/sy 的尺度衰减
-        gauss = amp * np.exp(-(xr ** 2 / (2 * sx ** 2) + yr ** 2 / (2 * sy ** 2)))
-        img += gauss   # 叠加上去
-
-    return img
+# （make_ideal_pressure 已移到 sensor_config.py，见上面的 import）
 
 
 def add_imperfections(ideal):
@@ -159,7 +90,7 @@ def add_imperfections(ideal):
     # ---- 毛病① 批次不一致 ----
     # 每个点乘以一个"灵敏度系数"，这个系数围绕 1 随机浮动。
     # 用固定随机种子，保证每次跑出来结果一样，方便你对比。
-    rng = np.random.default_rng(42)
+    rng = np.random.default_rng(SEED)
     sensitivity = rng.normal(1.0, SENS_GAIN_STD, size=ideal.shape)
     after_gain = ideal * sensitivity
     steps["+批次不一致(灵敏度±15%)"] = after_gain
@@ -235,7 +166,7 @@ def plot_and_save(steps):
     """
     把每一步画出来，拼成一张 4 宫格对比图，存成 png。
     """
-    out_dir = "outputs"
+    out_dir = OUT_DIR
     os.makedirs(out_dir, exist_ok=True)
 
     # 取 4 个关键步骤来展示：理想、批次不一致、温漂+零点、最终
@@ -254,7 +185,7 @@ def plot_and_save(steps):
 
     fig.suptitle("理想体压 → 传感器真实读数（颜色越亮 = 压力越大）", fontsize=14)
     plt.tight_layout()
-    path1 = os.path.join(out_dir, "图1_体压与传感器毛病.png")
+    path1 = os.path.join(out_dir, FILE_IMPERFECTIONS)
     plt.savefig(path1, dpi=120, bbox_inches="tight")
     plt.close(fig)
 
@@ -263,7 +194,7 @@ def plot_and_save(steps):
 
 def plot_hysteresis():
     """画迟滞回线（图2）。"""
-    out_dir = "outputs"
+    out_dir = OUT_DIR
     os.makedirs(out_dir, exist_ok=True)
 
     p, load, unload = hysteresis_curve()
@@ -281,7 +212,7 @@ def plot_hysteresis():
     ax.legend()
     ax.grid(True, alpha=0.3)
     plt.tight_layout()
-    path2 = os.path.join(out_dir, "图2_迟滞回线.png")
+    path2 = os.path.join(out_dir, FILE_HYSTERESIS)
     plt.savefig(path2, dpi=120, bbox_inches="tight")
     plt.close(fig)
 
@@ -290,16 +221,16 @@ def plot_hysteresis():
 
 def save_csv(steps):
     """把理想体压图和最终读数存成 csv，方便以后喂给算法。"""
-    out_dir = "outputs"
+    out_dir = OUT_DIR
     os.makedirs(out_dir, exist_ok=True)
 
     keys = list(steps.keys())
     ideal = steps[keys[0]]
     final = steps[keys[-1]]
 
-    np.savetxt(os.path.join(out_dir, "理想体压.csv"), ideal,
+    np.savetxt(os.path.join(out_dir, FILE_IDEAL_CSV), ideal,
                fmt="%.2f", delimiter=",")
-    np.savetxt(os.path.join(out_dir, "传感器读数.csv"), final,
+    np.savetxt(os.path.join(out_dir, FILE_RAW_CSV), final,
                fmt="%.2f", delimiter=",")
 
 
@@ -340,8 +271,8 @@ def main():
     print(" 产出文件都在「outputs」文件夹里：")
     print(f"   · {path1}")
     print(f"   · {path2}")
-    print("   · outputs/理想体压.csv（标准答案）")
-    print("   · outputs/传感器读数.csv（脏数据，标定算法的输入）")
+    print(f"   · {os.path.join(OUT_DIR, FILE_IDEAL_CSV)}（标准答案）")
+    print(f"   · {os.path.join(OUT_DIR, FILE_RAW_CSV)}（脏数据，标定算法的输入）")
     print()
     print(" ✅ 完成。去打开那两张 png 图看看，你就明白传感器为什么会'骗人'了。")
 

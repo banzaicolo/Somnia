@@ -34,8 +34,8 @@
 
 跑完生成一张图：
 
-    人形证明图.png  —— 左边是标准答案热力图（标了四个部位），
-                       右边是一个真人仰卧示意，左右对照着看。
+    body_shape_proof.png  —— 左边是标准答案热力图（标了四个部位），
+                             右边是一个真人仰卧示意，左右对照着看。
 
 还有一个终端的数字表，把 8 行数字打出来，你一眼能看出
 「上面是头（数字小）、中间是臀（数字最大）、下面是脚跟」。
@@ -65,47 +65,16 @@ plt.rcParams["axes.unicode_minus"] = False
 
 
 # ============================================================================
-# 第一部分：身体四个部位的位置（跟「pressure_simulator.py」里一模一样）
+# 第一部分：身体四个部位的位置（统一从 sensor_config.py 拿）
 # ============================================================================
-# 每个部位：(名字, 中心列号x, 中心行号y, 宽, 高, 峰值压力, 旋转角度)
-# 注意 y 是从上往下的行号：y 越小越靠床头，y 越大越靠床尾。
-# 所以：头(y=1.0) → 肩胛(y=3.0) → 臀(y=5.3) → 脚跟(y=7.2)，一路从上到下。
-BODY_PARTS = [
-    ("头部",   6.0, 1.0, 1.8, 1.0, 35, 0),   # 最上头，压力最小
-    ("肩胛",   6.0, 3.0, 2.6, 1.6, 80, 0),   # 肩膀，压力中等
-    ("臀部",   6.0, 5.3, 2.8, 1.8, 110, 0),  # 屁股，全场最重！
-    ("脚后跟", 6.0, 7.2, 1.4, 0.7, 30, 0),   # 最下头，压力最小
-]
-
-# 阵列尺寸（跟模拟器一致）
-GRID_W = 12   # 横向 12 个点（列）
-GRID_H = 8    # 纵向 8 个点（行）
+from sensor_config import (
+    GRID_W, GRID_H, BODY_PARTS,
+    OUT_DIR, FILE_BODY_PROOF,
+    make_ideal_pressure,
+)
 
 
-def make_ideal_pressure(w, h, parts):
-    """
-    生成「理想体压图」——标准答案。
-
-    做法：每个身体部位是一座高斯小鼓包（中间高、四周矮），
-    全部叠在一起。这个函数【没有随机数】，所以人形是固定摆好的。
-    """
-    yy, xx = np.mgrid[0:h, 0:w]
-    img = np.zeros((h, w))
-
-    for name, cx, cy, sx, sy, amp, ang in parts:
-        # 把坐标平移到以鼓包中心为原点
-        dx = xx - cx
-        dy = yy - cy
-        # 旋转（这里角度是 0，等于没转，保留是为了以后能模拟侧躺）
-        a = np.cos(np.radians(ang))
-        b = np.sin(np.radians(ang))
-        xr = dx * a + dy * b
-        yr = -dx * b + dy * a
-        # 二维高斯公式：中心 = amp，往四周按 sx/sy 衰减
-        gauss = amp * np.exp(-(xr ** 2 / (2 * sx ** 2) + yr ** 2 / (2 * sy ** 2)))
-        img += gauss
-
-    return img
+# （make_ideal_pressure 已移到 sensor_config.py，见上面的 import）
 
 
 # ============================================================================
@@ -206,9 +175,9 @@ def main():
                  fontsize=13, y=0.98)
     plt.tight_layout(rect=[0, 0, 1, 0.95])
 
-    out_dir = "outputs"
+    out_dir = OUT_DIR
     os.makedirs(out_dir, exist_ok=True)
-    path = os.path.join(out_dir, "人形证明图.png")
+    path = os.path.join(out_dir, FILE_BODY_PROOF)
     plt.savefig(path, dpi=130, bbox_inches="tight")
     plt.close(fig)
 

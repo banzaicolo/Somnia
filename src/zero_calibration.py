@@ -39,7 +39,7 @@
 
     python3 src/zero_calibration.py
 
-跑完会生成「零点校准对比.png」，并打印"修之前/修之后"的误差数字。
+跑完会生成「zero_calibration.png」，并打印"修之前/修之后"的误差数字。
 =============================================================================
 """
 
@@ -54,47 +54,27 @@ plt.rcParams["axes.unicode_minus"] = False
 
 
 # ============================================================================
-# 参数区（跟「pressure_simulator.py」保持一致，方便对照）
+# 参数区（统一从 sensor_config.py 拿，本脚本只覆盖"温漂"这一个值）
 # ============================================================================
-GRID_W = 12   # 传感器横向点数
-GRID_H = 8    # 传感器纵向点数
+from sensor_config import (
+    GRID_W, GRID_H, BODY_PARTS,
+    SENS_GAIN_STD, ZERO_DRIFT_MAX, NOISE_STD,
+    OUT_DIR, SEED, FILE_ZERO_CAL,
+    make_ideal_pressure,
+)
 
-SENS_GAIN_STD = 0.15   # 灵敏度偏差（批次不一致）
-TEMP_DRIFT = 30        # 温漂（调大，让"脏"得更明显、一眼看得出区别；
-                       #  真实产品没这么夸张，这里是为了教学看效果）
-ZERO_DRIFT_MAX = 8     # 零点漂移
-NOISE_STD = 3          # 噪声
-
-# 人体各部位（跟模拟器同一个"标准答案"）
-BODY_PARTS = [
-    ("头部",   6.0, 1.0, 1.8, 1.0, 35, 0),
-    ("肩胛",   6.0, 3.0, 2.6, 1.6, 80, 0),
-    ("臀部",   6.0, 5.3, 2.8, 1.8, 110, 0),
-    ("脚后跟", 6.0, 7.2, 1.4, 0.7, 30, 0),
-]
+# 温漂单独调大：让"脏"得更明显、一眼看得出区别。
+# （真实产品没这么夸张，这里是为了教学看效果。改这个不影响其他脚本。）
+TEMP_DRIFT = 30
 
 
 # ============================================================================
 # 核心函数
 # ============================================================================
+# （make_ideal_pressure 已移到 sensor_config.py，见上面的 import）
 
 
-def make_ideal_pressure(w, h, parts):
-    """生成理想体压图（标准答案）。跟模拟器里那个函数一样。"""
-    yy, xx = np.mgrid[0:h, 0:w]
-    img = np.zeros((h, w))
-    for name, cx, cy, sx, sy, amp, ang in parts:
-        dx = xx - cx
-        dy = yy - cy
-        a = np.cos(np.radians(ang))
-        b = np.sin(np.radians(ang))
-        xr = dx * a + dy * b
-        yr = -dx * b + dy * a
-        img += amp * np.exp(-(xr ** 2 / (2 * sx ** 2) + yr ** 2 / (2 * sy ** 2)))
-    return img
-
-
-def simulate_calibration(seed=42):
+def simulate_calibration(seed=SEED):
     """
     跑一遍完整的「零点校准」模拟，返回计算结果。
 
@@ -170,7 +150,7 @@ def main():
     # ---- 6. 画图对比 ----
     # 关键教训：之前三张图各自独立缩放色标，导致脏数据整体抬高
     # 却看不出差别。现在改成【统一色标】+【误差图】，区别一眼可见。
-    out_dir = "outputs"
+    out_dir = OUT_DIR
     os.makedirs(out_dir, exist_ok=True)
 
     # 主体图统一用 0~200 的色标，这样"整体抬高了"会直接显示成"更亮"
@@ -231,7 +211,7 @@ def main():
     fig.suptitle("零点校准：统一色标下，脏数据明显'发红发虚'，校准后重新变干净",
                  fontsize=17)
     plt.tight_layout()
-    path = os.path.join(out_dir, "零点校准对比.png")
+    path = os.path.join(out_dir, FILE_ZERO_CAL)
     plt.savefig(path, dpi=150, bbox_inches="tight")
     plt.close(fig)
 

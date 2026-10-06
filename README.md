@@ -1,9 +1,11 @@
-# AI 医疗床 · 传感器标定起步包
+# PressureLab
 
 ![Python](https://img.shields.io/badge/Python-3.9%2B-blue)
 ![License](https://img.shields.io/badge/License-MIT-green)
 ![Tests](https://img.shields.io/badge/tests-18%20passed-brightgreen)
 
+> A no-hardware playground for flexible pressure-sensor simulation, calibration & edge deployment.
+>
 > 一张**离线 AI 医疗床**的软件起步包：没有真硬件，先用数学「演」出柔性压力传感器的脏数据，再演示怎么把它校准干净。
 
 <p align="center">
@@ -106,6 +108,7 @@ pytest tests/ -v
 ```
 .
 ├── src/                      # 所有代码
+│   ├── sensor_config.py      # 集中配置（所有参数 + 公共函数，改一次三处生效）
 │   ├── main_controller.py    # 边缘主控骨架
 │   ├── pressure_simulator.py # 传感器模拟器
 │   ├── zero_calibration.py   # 零点校准演示
@@ -133,9 +136,9 @@ pytest tests/ -v
 如果你在研究中用到了这个项目，请这样引用：
 
 ```bibtex
-@misc{ai-medical-bed-simulator,
-  author = {Zhenlyu Wang},
-  title = {AI 医疗床 · 传感器标定起步包},
+@misc{pressurelab,
+  author = {{PressureLab Contributors}},
+  title = {PressureLab: A No-Hardware Playground for Pressure-Sensor Simulation and Calibration},
   year = {2026},
   url = {https://github.com/<your-name>/<repo-name>}
 }
