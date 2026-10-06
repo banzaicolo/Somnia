@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+# ============================================================================
+# PressureLab 项目元数据 + 工具配置（现代 Python 项目的"标准封面"）
+# 说明：这个仓库是脚本集合，不需要 pip install 安装使用；
+#       这份文件的作用是 ① 声明项目信息（GitHub 会读）② 配置 pytest
+# ============================================================================
+
+[project]
+name = "pressure-lab"
+version = "0.2.0"
+description = "No-hardware playground for flexible pressure-sensor simulation, calibration and edge deployment (AI medical-bed starter kit)"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "PressureLab Contributors" }]
+keywords = ["pressure-sensor", "calibration", "sleep-posture", "edge-ai", "medical-bed"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Topic :: Scientific/Engineering",
+]
+dependencies = [
+    "numpy",
+    "matplotlib",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7"]
+
+[tool.setuptools]
+# 脚本集合，不含可安装的包
+packages = []
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

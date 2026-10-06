@@ -8,6 +8,9 @@ __pycache__/
 outputs/
 模拟数据/
 
+# 下载的公开数据集（PoPu 完整版 82MB，不该进 git）
+pupu_data/
+
 # macOS 垃圾文件
 .DS_Store
 
