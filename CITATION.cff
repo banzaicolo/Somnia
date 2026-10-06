@@ -1,0 +1,9 @@
+cff-version: 1.2.0
+message: "如果你在研究中用到了这个项目，请这样引用它。"
+title: "AI 医疗床 · 传感器标定起步包"
+authors:
+  - family-names: "Wang"
+    given-names: "Zhenlyu"
+version: 0.1.0
+date-released: "2026-10-06"
+license: MIT

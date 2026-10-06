@@ -2,6 +2,7 @@
 __pycache__/
 *.pyc
 *.pyo
+.pytest_cache/
 
 # 脚本运行产物（图和数据，每次跑都会变，不入库）
 outputs/

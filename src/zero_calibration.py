@@ -94,41 +94,73 @@ def make_ideal_pressure(w, h, parts):
     return img
 
 
-def main():
-    print("=" * 62)
-    print(" 零点校准演示：人下床归零，是不是能把脏数据修干净？")
-    print("=" * 62)
-    print()
+def simulate_calibration(seed=42):
+    """
+    跑一遍完整的「零点校准」模拟，返回计算结果。
 
-    # 固定随机种子：保证每次跑结果一样，方便你对比
-    rng = np.random.default_rng(42)
+    【为什么要把这个从 main() 里抽出来？】
+    因为测试要验证"校准有没有效"。如果测试里自己再写一遍同样的计算，
+    那测试和脚本就成了两份代码，哪天改了一个忘了另一个，测试就骗人了。
+    抽成一个函数，让 main() 和测试都调用它，保证测的就是真实跑的那套逻辑。
 
-    # ---- 1. 传感器的"自身毛病"（这些不随人变，是固定的）----
-    # 灵敏度：每个点不一样（批次不一致）
-    sensitivity = rng.normal(1.0, SENS_GAIN_STD, size=(GRID_H, GRID_W))
-    # 温漂 + 零点漂移，合起来叫"零点偏移"（加性，整体抬基线）
-    temp_map = TEMP_DRIFT * rng.uniform(0.7, 1.3, size=(GRID_H, GRID_W))
-    zero_map = rng.uniform(0, ZERO_DRIFT_MAX, size=(GRID_H, GRID_W))
-    offset = temp_map + zero_map
+    返回一个字典，key 和含义：
+      ideal        标准答案（人真实压上去该长什么样）
+      raw          脏数据（校准前，传感器直接读到的）
+      calibrated   校准后（减掉基线）
+      baseline     空载时的基线（那个"白送的假数"）
+      err_before   校准前跟标准答案的平均误差
+      err_after    校准后跟标准答案的平均误差
+    """
+    rng = np.random.default_rng(seed)   # 固定随机种子，结果可复现
 
-    # ---- 2. 时刻① 空载：人下床了，理想是 0，但传感器读出"偏移 + 噪声" ----
+    # ---- 1. 传感器的"自身毛病"（不随人变，固定）----
+    sensitivity = rng.normal(1.0, SENS_GAIN_STD, size=(GRID_H, GRID_W))  # 灵敏度不一
+    temp_map = TEMP_DRIFT * rng.uniform(0.7, 1.3, size=(GRID_H, GRID_W))  # 温漂
+    zero_map = rng.uniform(0, ZERO_DRIFT_MAX, size=(GRID_H, GRID_W))      # 零点漂移
+    offset = temp_map + zero_map                                          # 合起来叫"零点偏移"
+
+    # ---- 2. 时刻① 空载：基线 = 偏移 + 噪声 ----
     baseline = offset + rng.normal(0, NOISE_STD, size=(GRID_H, GRID_W))
-    print(f"[空载] 没人躺，读数却高达 {baseline.max():.1f}（本该是 0）")
-    print(f"       这 {baseline.max():.1f} 就是传感器'白送的假数'，记下来当基线")
 
-    # ---- 3. 时刻② 上人：真实体压 × 灵敏度 + 偏移 + 噪声 = 脏数据 ----
+    # ---- 3. 时刻② 上人：脏数据 = 真实体压 × 灵敏度 + 偏移 + 噪声 ----
     ideal = make_ideal_pressure(GRID_W, GRID_H, BODY_PARTS)
     raw = ideal * sensitivity + offset + rng.normal(0, NOISE_STD, size=(GRID_H, GRID_W))
 
     # ---- 4. 校准动作：一个减法 ----
     calibrated = raw - baseline
 
-    # ---- 5. 算误差（跟标准答案比，差多少）----
-    # 平均绝对误差：每个点"跟正确答案差了多少"再取平均
+    # ---- 5. 平均绝对误差（每个点"跟正确答案差多少"再取平均）----
     err_before = np.abs(raw - ideal).mean()
     err_after = np.abs(calibrated - ideal).mean()
+
+    return {
+        "ideal": ideal,
+        "raw": raw,
+        "calibrated": calibrated,
+        "baseline": baseline,
+        "err_before": err_before,
+        "err_after": err_after,
+    }
+
+
+def main():
+    print("=" * 62)
+    print(" 零点校准演示：人下床归零，是不是能把脏数据修干净？")
+    print("=" * 62)
+    print()
+
+    # 调用抽出来的核心函数（测试也调同一个，保证测的就是真实逻辑）
+    r = simulate_calibration(seed=42)
+    ideal = r["ideal"]
+    raw = r["raw"]
+    calibrated = r["calibrated"]
+    baseline = r["baseline"]
+    err_before = r["err_before"]
+    err_after = r["err_after"]
     improve = (err_before - err_after) / err_before * 100
 
+    print(f"[空载] 没人躺，读数却高达 {baseline.max():.1f}（本该是 0）")
+    print(f"       这 {baseline.max():.1f} 就是传感器'白送的假数'，记下来当基线")
     print()
     print(f"[上人] 脏数据已生成，跟标准答案平均误差 = {err_before:.1f}")
     print(f"[校准] 减掉基线后，跟标准答案平均误差 = {err_after:.1f}")
