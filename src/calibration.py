@@ -166,29 +166,113 @@ def correct_hysteresis(reading, direction, h):
     招（附赠）：迟滞补偿。
 
     迟滞就是传感器"记仇"：同一个压力，加压时读偏高、减压时读偏低。
-    数学模型（跟《压力模拟器》里那条回线一致）：
+    数学模型（跟《压力模拟器》里那条回线一致，宽度恒等于 h）：
 
-        加压：reading = p·(1 - h/100) + h
-        减压：reading = p·(1 + h/100) - h
+        加压：reading = p + h/2   （偏高半个宽度）
+        减压：reading = p - h/2   （偏低半个宽度）
 
     还原真实压力 p，就是把上面两个式子反着解：
 
-        加压：p = (reading - h) / (1 - h/100)
-        减压：p = (reading + h) / (1 + h/100)
+        加压：p = reading - h/2
+        减压：p = reading + h/2
+
+    为什么用「恒定偏移」而不是"随压力收敛"的复杂模型？
+    因为复杂模型要假设"满量程是多少"（比如 100），一旦真实压力超过
+    满量程（臀部峰值 110 > 100），方向就会反转——加压反而读偏低。
+    恒定偏移模型没有这个隐含假设，对任意压力范围都成立，公式也最简单。
 
     参数：
       reading   —— 传感器读数（可以是数组）
       direction —— 方向，"load"=加压（读数偏高） 或 "unload"=减压（读数偏低）
-      h         —— 迟滞宽度（跟 HYSTERESIS 同一个数）
+      h         —— 迟滞宽度（加压与减压读数之差，跟 HYSTERESIS 同一个数）
     """
     reading = np.asarray(reading, dtype=float)
     if direction == "load":
-        return (reading - h) / (1 - h / 100.0)
+        return reading - h / 2.0
     elif direction == "unload":
-        return (reading + h) / (1 + h / 100.0)
+        return reading + h / 2.0
     else:
         # 方向没给对，宁可原样返回也不瞎改
         raise ValueError("direction 必须是 'load' 或 'unload'")
+
+
+def estimate_direction(prev, curr, deadband=0.0):
+    """
+    判断「压力在往哪个方向变」：加压 / 减压 / 不变。
+
+    correct_hysteresis 需要你手动告诉它"这是加压还是减压"。但真实场景里
+    传感器不会告诉你方向，只能靠"比较上一帧和这一帧"自己猜：
+
+        这一帧明显比上一帧大 → 正在加压（load，读数偏高）
+        这一帧明显比上一帧小 → 正在减压（unload，读数偏低）
+        两边差不多           → 没变，沿用上一帧的方向
+
+    【为什么要死区 deadband？】
+
+    噪声会让读数无意义地抖动。假设迟滞宽度才 8，而噪声就 ±3：如果没有
+    死区，一个 +1 的抖动也会被当成"方向反转"，补偿就会在加压/减压之间
+    疯狂横跳，越修越乱。加个死区，只有变化超过阈值才算真的转向。
+
+    参数：
+      prev, curr —— 上一帧、这一帧的压力图，(H, W)
+      deadband  —— 死区阈值。绝对值变化 <= deadband 一律算"没变"
+
+    返回：
+      direction —— 和 prev 同形状的整数数组：+1=加压 / -1=减压 / 0=没变
+    """
+    delta = np.asarray(curr, dtype=float) - np.asarray(prev, dtype=float)
+    direction = np.zeros(np.shape(delta), dtype=int)
+    direction[delta > deadband] = 1
+    direction[delta < -deadband] = -1
+    return direction
+
+
+def correct_hysteresis_sequence(readings, h, deadband=0.0):
+    """
+    迟滞补偿的「完整版」：自动判方向，逐帧把数据修回来。
+
+    单帧的 correct_hysteresis 要你手动给方向；这个函数处理的是真实场景——
+    程序拿到的是连续的一帧帧数据（比如每秒 10 帧），必须自己判断方向。
+    这里把「判方向 + 补偿」串成一条龙。
+
+    每一帧做两件事：
+      1. 用「上一帧以来记住的方向」补偿这一帧；
+      2. 拿这一帧跟上一帧比，明显变了才更新方向，否则沿用。
+
+    第一帧没有"上一帧"，默认按「加压」处理——因为人上床这个动作，
+    总是从"压上去（加压）"开始，这是个合理的先验。
+
+    参数：
+      readings —— (n_frames, H, W) 传感器读数序列
+      h        —— 迟滞宽度（跟 sensor_config 里的 HYSTERESIS 同一个数）
+      deadband —— 死区阈值，见 estimate_direction
+
+    返回：
+      corrected —— 和 readings 同形状的补偿后序列
+    """
+    readings = np.asarray(readings, dtype=float)
+    n = readings.shape[0]
+    corrected = np.empty_like(readings)
+
+    # 方向记忆：+1=加压，-1=减压。第一帧默认加压。
+    direction = np.ones(readings.shape[1:], dtype=int)
+
+    for i in range(n):
+        cur = readings[i]
+        load_mask = direction > 0
+
+        # 就是 correct_hysteresis 的向量化版本：加压点用一套公式，减压点用另一套
+        frame = np.empty_like(cur)
+        frame[load_mask] = cur[load_mask] - h / 2.0
+        frame[~load_mask] = cur[~load_mask] + h / 2.0
+        corrected[i] = frame
+
+        # 更新方向（最后一帧不用再更新）；只有"明显变"的点才转向
+        if i < n - 1:
+            step = estimate_direction(readings[i], readings[i + 1], deadband)
+            direction[step != 0] = step[step != 0]
+
+    return corrected
 
 
 # ============================================================================

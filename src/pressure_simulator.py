@@ -141,20 +141,72 @@ def hysteresis_curve():
     这"加压"和"减压"两条路径的读数对不上，画出来是一个圈，
     而不是一条线。圈越胖，说明传感器越"记仇"。
 
-    这里用简化模型模拟：
-      - 加压时，读数 = 真实压力 + 一部分迟滞
-      - 减压时，读数 = 真实压力 - 一部分迟滞
+    这里用简化模型模拟（宽度恒等于 HYSTERESIS）：
+      - 加压时，读数 = 真实压力 + HYSTERESIS/2
+      - 减压时，读数 = 真实压力 - HYSTERESIS/2
     真实迟滞比这复杂得多，但这条圈够用来开发标定算法了。
     """
     p = np.linspace(0, 100, 50)   # 真实压力从 0 到 100，取 50 个点
 
-    # 加压（从 0 到 100）：读数偏高
-    load = p + HYSTERESIS * (1 - p / 100.0)
+    # 加压（从 0 到 100）：读数偏高半个宽度
+    load = p + HYSTERESIS / 2.0
 
-    # 减压（从 100 到 0）：读数偏低
-    unload = p - HYSTERESIS * (1 - p / 100.0)
+    # 减压（从 100 到 0）：读数偏低半个宽度
+    unload = p - HYSTERESIS / 2.0
 
     return p, load, unload
+
+
+def simulate_load_unload(ideal, n_steps=60, h=HYSTERESIS, noise=0.0, seed=None):
+    """
+    模拟「人慢慢躺下，再慢慢起身」的完整过程，并叠加迟滞。
+
+    为什么要单独写这个？因为迟滞是「动态」的——它跟"压力在升还是降"有关，
+    没法加到一张静止的压力图上（add_imperfections 处理的是单张静态图）。
+    所以要模拟一个过程：
+
+        躺下（加压：压力从 0 升到最大）→ 起身（减压：压力从最大降到 0）
+
+        每一帧都按"当时是加压还是减压"来加迟滞偏移：
+
+        加压段：读数 = p + h/2    （偏高）
+        减压段：读数 = p - h/2    （偏低）
+
+    参数：
+      ideal    —— 理想体压图（人完全躺平时的标准答案），(H, W)
+      n_steps  —— 总帧数（加压段和减压段各约一半）
+      h        —— 迟滞宽度（跟 HYSTERESIS 同一个数）
+      noise    —— 每帧叠加的随机噪声（默认 0，先看纯粹的迟滞效果）
+      seed     —— 随机种子，None 则用 sensor_config 的 SEED
+
+    返回：
+      true_frames —— (n_frames, H, W) 每帧的真实压力（标准答案）
+      raw_frames  —— (n_frames, H, W) 每帧传感器读数（含迟滞）
+      weights     —— (n_frames,) 每帧的「压力系数」0~1，先升后降
+    """
+    rng = np.random.default_rng(seed if seed is not None else SEED)
+
+    # 加压段 0→1，减压段 1→0（顶点只算一次，别让两段都包含 w=1 那一帧）
+    n_up = n_steps // 2
+    n_down = n_steps - n_up
+    up = np.linspace(0.0, 1.0, n_up)
+    down = np.linspace(1.0, 0.0, n_down + 1)[1:]   # 去掉重复的顶点
+    weights = np.concatenate([up, down])
+
+    true_frames = np.array([ideal * w for w in weights])
+    raw_frames = np.empty_like(true_frames)
+
+    for i, w in enumerate(weights):
+        p = true_frames[i]
+        if i < n_up:
+            raw = p + h / 2.0     # 加压：读数偏高
+        else:
+            raw = p - h / 2.0     # 减压：读数偏低
+        if noise > 0:
+            raw = raw + rng.normal(0, noise, size=p.shape)
+        raw_frames[i] = raw
+
+    return true_frames, raw_frames, weights
 
 
 # ============================================================================

@@ -169,7 +169,7 @@ def main(n_per_class=N_PER_CLASS, n_hidden=N_HIDDEN, n_epoch=N_EPOCH,
     # ---- 动态结论：程序根据上面三个数字自己说话，不写死 ----
     # 这里调用了「结论生成器」render_pose_verdict：它拿 test_acc /
     # acc_dirty / acc_rescued 三个数字去套判断规则，生成这次该说什么。
-    # 数字变，结论就跟着变——不会再出现"数字崩了还在喊鲁棒"的瞎话。
+    # 数字变，结论就跟着变——不会再出现"数字崩了还在喊稳健"的瞎话。
     print()
     print(" 本次实验结论（程序根据上面的数字自动生成，非写死）：")
     print()

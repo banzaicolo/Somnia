@@ -113,7 +113,7 @@ NOISE_STD = 3
 # 毛病⑤ 串扰：相邻点互相"漏电"，0.1 表示 10% 漏给邻居
 CROSSTALK = 0.10
 
-# 迟滞回线宽度：加压和减压之间能差多少（图2 用）
+# 迟滞回线宽度：加压和减压之间能差多少（图2 用，也是迟滞补偿的正向/反向共用参数）
 HYSTERESIS = 8
 
 
@@ -130,6 +130,9 @@ FILE_IDEAL_CSV = "ideal_pressure.csv"          # 标准答案
 FILE_RAW_CSV = "sensor_readings.csv"           # 脏数据（标定算法的输入）
 FILE_ZERO_CAL = "zero_calibration.png"         # 零点校准对比
 FILE_BODY_PROOF = "body_shape_proof.png"       # 人形证明图
+FILE_HYSTERESIS_COMP = "hysteresis_compensation.png"   # 迟滞自动补偿对比图
+FILE_BED_MONITOR = "bed_monitor.png"                   # 离床检测状态时间线
+FILE_BCG = "bcg_monitor.png"                           # BCG 呼吸/心跳监测图
 
 
 # ============================================================================

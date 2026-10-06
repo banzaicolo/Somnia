@@ -43,11 +43,11 @@ def test_没人压的角落被抬高了():
 
 
 def test_迟滞_加压高于减压():
-    """迟滞回线：同一压力，加压读数 >= 减压读数（两端相等，中间严格大于）。"""
+    """迟滞回线：同一压力，加压读数严格高于减压读数（宽度恒等于 HYSTERESIS）。"""
     p, load, unload = ps.hysteresis_curve()
     assert p.shape == load.shape == unload.shape
-    assert (load >= unload).all()            # 端点两者相等（迟滞在两端收拢为 0）
-    assert (load[1:-1] > unload[1:-1]).all()  # 中间段加压严格大于减压
+    assert (load >= unload).all()            # 加压永远不低于减压
+    assert (load - unload > 0).all()         # 恒有正宽度（恒定偏移模型）
 
 
 def test_身体部位正好四个():

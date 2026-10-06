@@ -98,14 +98,14 @@ class TestHysteresis:
     def test_load_roundtrip(self):
         p = np.linspace(0, 100, 50)
         h = 8.0
-        load = p + h * (1 - p / 100.0)
+        load = p + h / 2.0
         out = correct_hysteresis(load, "load", h)
         np.testing.assert_allclose(out, p, atol=1e-9)
 
     def test_unload_roundtrip(self):
         p = np.linspace(0, 100, 50)
         h = 8.0
-        unload = p - h * (1 - p / 100.0)
+        unload = p - h / 2.0
         out = correct_hysteresis(unload, "unload", h)
         np.testing.assert_allclose(out, p, atol=1e-9)
 
