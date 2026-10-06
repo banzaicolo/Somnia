@@ -1,0 +1,18 @@
+# Python 缓存
+__pycache__/
+*.pyc
+*.pyo
+
+# 脚本运行产物（图和数据，每次跑都会变，不入库）
+outputs/
+模拟数据/
+
+# macOS 垃圾文件
+.DS_Store
+
+# 项目内部记忆（含内部讨论/预算等敏感信息，绝不能公开）
+.workbuddy/
+
+# 虚拟环境
+.venv/
+venv/
