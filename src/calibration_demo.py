@@ -172,29 +172,29 @@ def plot(ideal, raw, no_temp, cleaned, err_raw, err_no_temp, err_clean):
     """画 2×2 对比图，统一色标，右下是误差图。"""
     os.makedirs(OUT_DIR, exist_ok=True)
 
-    fig, axes = plt.subplots(2, 2, figsize=(12, 10))
+    fig, axes = plt.subplots(2, 2, figsize=(16, 13))
 
     vmax = max(ideal.max(), raw.max())
 
     # 左上：标准答案
-    im0 = axes[0, 0].imshow(ideal, cmap="hot", vmin=0, vmax=vmax)
+    im0 = axes[0, 0].imshow(ideal, cmap="hot", vmin=0, vmax=vmax, interpolation="bicubic")
     axes[0, 0].set_title(f"标准答案（真实压力）", fontsize=12)
     fig.colorbar(im0, ax=axes[0, 0], fraction=0.046)
 
     # 右上：脏数据
-    im1 = axes[0, 1].imshow(raw, cmap="hot", vmin=0, vmax=vmax)
+    im1 = axes[0, 1].imshow(raw, cmap="hot", vmin=0, vmax=vmax, interpolation="bicubic")
     axes[0, 1].set_title(f"脏数据（误差 {err_raw:.0f}）", fontsize=12)
     fig.colorbar(im1, ax=axes[0, 1], fraction=0.046)
 
     # 左下：不做温度补偿的校准
-    im2 = axes[1, 0].imshow(no_temp, cmap="hot", vmin=0, vmax=vmax)
+    im2 = axes[1, 0].imshow(no_temp, cmap="hot", vmin=0, vmax=vmax, interpolation="bicubic")
     axes[1, 0].set_title(f"不补偿温度（误差 {err_no_temp:.0f}）", fontsize=12)
     fig.colorbar(im2, ax=axes[1, 0], fraction=0.046)
 
     # 右下：误差图（完整校准 - 标准答案），红=偏高 蓝=偏低 白=准确
     err_map = cleaned - ideal
     lim = max(abs(err_map.min()), abs(err_map.max()), 1.0)
-    im3 = axes[1, 1].imshow(err_map, cmap="seismic", vmin=-lim, vmax=lim)
+    im3 = axes[1, 1].imshow(err_map, cmap="seismic", vmin=-lim, vmax=lim, interpolation="bicubic")
     axes[1, 1].set_title(f"完整校准后的误差图（误差 {err_clean:.1f}）", fontsize=12)
     fig.colorbar(im3, ax=axes[1, 1], fraction=0.046)
 
@@ -205,7 +205,7 @@ def plot(ideal, raw, no_temp, cleaned, err_raw, err_no_temp, err_clean):
     fig.suptitle("完整标定链：四招连发，把脏数据洗回真相", fontsize=15)
     plt.tight_layout()
     path = os.path.join(OUT_DIR, "calibration_full.png")
-    plt.savefig(path, dpi=120, bbox_inches="tight")
+    plt.savefig(path, dpi=200, bbox_inches="tight")
     plt.close(fig)
     return path
 

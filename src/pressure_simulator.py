@@ -226,10 +226,10 @@ def plot_and_save(steps):
     # 挑 4 个有代表性的（第1个、第2个、第4个、最后1个）
     chosen = [keys[0], keys[1], keys[3], keys[-1]]
 
-    fig, axes = plt.subplots(1, 4, figsize=(16, 4))
+    fig, axes = plt.subplots(1, 4, figsize=(18, 5))
 
     for ax, k in zip(axes, chosen):
-        im = ax.imshow(steps[k], cmap="hot", interpolation="nearest")
+        im = ax.imshow(steps[k], cmap="hot", interpolation="bicubic")
         ax.set_title(k, fontsize=11)
         ax.set_xticks([])   # 隐藏坐标刻度，图更干净
         ax.set_yticks([])
@@ -238,7 +238,7 @@ def plot_and_save(steps):
     fig.suptitle("理想体压 → 传感器真实读数（颜色越亮 = 压力越大）", fontsize=14)
     plt.tight_layout()
     path1 = os.path.join(out_dir, FILE_IMPERFECTIONS)
-    plt.savefig(path1, dpi=120, bbox_inches="tight")
+    plt.savefig(path1, dpi=200, bbox_inches="tight")
     plt.close(fig)
 
     return path1

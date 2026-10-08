@@ -133,6 +133,9 @@ FILE_BODY_PROOF = "body_shape_proof.png"       # 人形证明图
 FILE_HYSTERESIS_COMP = "hysteresis_compensation.png"   # 迟滞自动补偿对比图
 FILE_BED_MONITOR = "bed_monitor.png"                   # 离床检测状态时间线
 FILE_BCG = "bcg_monitor.png"                           # BCG 呼吸/心跳监测图
+FILE_SLEEP_PIPELINE = "sleep_pipeline.png"             # 信号→特征→分期 打通演示图
+FILE_PUPU_REAL = "pupu_real_poses.png"                 # PoPu 真实数据可视化（校准前后对比）
+FILE_PUPU_TRAINING = "pupu_training.png"               # 真实数据训练（损失曲线+混淆矩阵）
 
 
 # ============================================================================

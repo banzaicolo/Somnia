@@ -26,3 +26,6 @@ uv.lock
 
 # Internal project notes (contains private budget/discussion — never public)
 .workbuddy/
+
+# Internal technical review (self-criticism + internal judgment — never public)
+TECHNICAL_REVIEW.md

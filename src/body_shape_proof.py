@@ -134,12 +134,12 @@ def main():
     # ---- 2. 画一张大图：左边热力图标部位，右边真人示意 ----
     fig, (ax1, ax2) = plt.subplots(
         1, 2,
-        figsize=(14, 7),
+        figsize=(16, 8),
         gridspec_kw={"width_ratios": [1.6, 1.0]}
     )
 
     # 左边：标准答案热力图，放大，标出四个部位
-    im = ax1.imshow(ideal, cmap="hot", interpolation="nearest",
+    im = ax1.imshow(ideal, cmap="hot", interpolation="bicubic",
                     vmin=0, vmax=120)
     ax1.set_title("标准答案：人压在床垫上（越亮 = 压得越重）", fontsize=14)
 
@@ -178,7 +178,7 @@ def main():
     out_dir = OUT_DIR
     os.makedirs(out_dir, exist_ok=True)
     path = os.path.join(out_dir, FILE_BODY_PROOF)
-    plt.savefig(path, dpi=130, bbox_inches="tight")
+    plt.savefig(path, dpi=200, bbox_inches="tight")
     plt.close(fig)
 
     print(f"[1/2] 图已生成：{path}")

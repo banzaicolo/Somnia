@@ -160,7 +160,7 @@ def main():
     # 误差图的色标范围（对称，红=偏大，蓝=偏小）
     EMAX = max(np.abs(raw - ideal).max(), np.abs(calibrated - ideal).max())
 
-    fig, axes = plt.subplots(2, 3, figsize=(18, 11))
+    fig, axes = plt.subplots(2, 3, figsize=(20, 13))
 
     # ---- 上排：三张主体图（统一色标）----
     for ax, data, title in zip(
@@ -170,7 +170,7 @@ def main():
          "脏数据\n（校准前）",
          "校准后\n（减掉基线）"],
     ):
-        im = ax.imshow(data, cmap="hot", interpolation="nearest",
+        im = ax.imshow(data, cmap="hot", interpolation="bicubic",
                        vmin=0, vmax=VMAX)
         ax.set_title(title, fontsize=15)
         ax.set_xticks([])
@@ -181,14 +181,14 @@ def main():
     err_dirty = raw - ideal
     err_cal = calibrated - ideal
 
-    im1 = axes[1, 0].imshow(err_dirty, cmap="RdBu_r", interpolation="nearest",
+    im1 = axes[1, 0].imshow(err_dirty, cmap="RdBu_r", interpolation="bicubic",
                             vmin=-EMAX, vmax=EMAX)
     axes[1, 0].set_title("脏数据的误差\n（红=读数偏大）", fontsize=15)
     axes[1, 0].set_xticks([])
     axes[1, 0].set_yticks([])
     fig.colorbar(im1, ax=axes[1, 0], fraction=0.046, label="误差")
 
-    im2 = axes[1, 2].imshow(err_cal, cmap="RdBu_r", interpolation="nearest",
+    im2 = axes[1, 2].imshow(err_cal, cmap="RdBu_r", interpolation="bicubic",
                             vmin=-EMAX, vmax=EMAX)
     # 标题不再写死「几乎全白=修干净了」这种主观词，改成直接显示数字。
     # 白不白、干不干净，你拿数字说话、拿眼睛看图判断，程序不替你下结论。
@@ -215,7 +215,7 @@ def main():
                  fontsize=17)
     plt.tight_layout()
     path = os.path.join(out_dir, FILE_ZERO_CAL)
-    plt.savefig(path, dpi=150, bbox_inches="tight")
+    plt.savefig(path, dpi=200, bbox_inches="tight")
     plt.close(fig)
 
     print(f" 产出图：{path}")
