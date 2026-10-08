@@ -1,4 +1,4 @@
-# Somnia · 知眠
+# Somnia
 
 > [English](README.md)
 
