@@ -1,4 +1,4 @@
-# PressureLab
+# Somnia · 知眠
 
 > [English](README.md)
 
@@ -7,7 +7,7 @@
 > 所有报警逻辑（离床、呼吸暂停、压疮风险）均基于**合成数据**演示，**未经过临床验证**。
 > 公开数据集上的准确率不代表真实临床性能。
 
-[![CI](https://github.com/banzaicolo/PressureLab/actions/workflows/ci.yml/badge.svg)](https://github.com/banzaicolo/PressureLab/actions)
+[![CI](https://github.com/banzaicolo/Somnia/actions/workflows/ci.yml/badge.svg)](https://github.com/banzaicolo/Somnia/actions)
 ![License](https://img.shields.io/badge/license-MIT-blue)
 
 **一张床垫，读懂睡眠。不穿戴、不摄像、不上云。**

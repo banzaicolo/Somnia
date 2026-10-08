@@ -1,8 +1,8 @@
 cff-version: 1.2.0
 message: "If you use this project in your research, please cite it as follows."
-title: "PressureLab: A No-Hardware Playground for Pressure-Sensor Simulation and Calibration"
+title: "Somnia: A No-Hardware Playground for Pressure-Sensor Simulation and Calibration"
 authors:
-  - name: "PressureLab Contributors"
+  - name: "Somnia Contributors"
 version: 0.1.0
 date-released: "2026-10-06"
 license: MIT

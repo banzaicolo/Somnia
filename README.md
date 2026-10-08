@@ -1,4 +1,4 @@
-# PressureLab
+# Somnia
 
 > [中文版](README.zh-CN.md)
 
@@ -8,7 +8,7 @@
 > (bed-exit, apnea, pressure-ulcer risk) runs on **synthetic data** and has **not been
 > clinically validated**. Accuracy figures on public datasets do not represent clinical performance.
 
-[![CI](https://github.com/banzaicolo/PressureLab/actions/workflows/ci.yml/badge.svg)](https://github.com/banzaicolo/PressureLab/actions)
+[![CI](https://github.com/banzaicolo/Somnia/actions/workflows/ci.yml/badge.svg)](https://github.com/banzaicolo/Somnia/actions)
 ![License](https://img.shields.io/badge/license-MIT-blue)
 
 **One mattress under the sleeper. No wearables, no cameras, no cloud.**
