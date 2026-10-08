@@ -2,52 +2,62 @@
 # -*- coding: utf-8 -*-
 """
 =============================================================================
-bed_monitor.py —— 离床监测（bed-exit）：判断「人在不在床上」，以及「要不要报警」
+bed_monitor.py — bed-exit monitoring: judge "is the person in bed or not",
+and "should an alarm be raised"
 =============================================================================
 
-【这东西解决什么问题？】
+What problem does this solve?
 
-养老院 / 病房里最怕的一件事：老人半夜自己下床，摔倒在卫生间、晕倒在
-走廊没人知道。这个模块就是床的「守夜人」——靠床垫下的压力传感器，判断
-"人是在床上、坐起来了、还是已经下床了"。
+The scariest thing in a nursing home or hospital ward: an elderly person gets
+out of bed alone in the middle of the night, falls in the bathroom, or faints
+in the hallway with no one noticing. This module is the bed's "night watchman"
+— using pressure sensors under the mattress, it decides whether the person is
+in bed, sitting up, or already out of bed.
 
-【关键：下床本身不报警！】
+Key point: getting out of bed does NOT by itself raise an alarm!
 
-生活里，老人夜里下床上个厕所、起来喝口水、溜达两步，再正常不过了。
-如果一离床就拉警报，护工没两天就会把系统静音，报警彻底作废。
+In real life it's perfectly normal for an elderly person to get up at night to
+use the toilet, drink some water, or take a couple of steps. If every exit
+triggered an alarm, the caregiver would mute the system within a couple of days
+and the alarm would become useless.
 
-真正危险的是「下床之后迟迟没回来」——那才可能是摔倒了、晕倒了、
-或者失智老人半夜走出房间走丢了。
+What's truly dangerous is "getting out of bed and not coming back for a long
+time" — that's when they may have fallen, fainted, or a confused resident may
+have wandered out of the room and gotten lost.
 
-所以本模块的报警规则就一条：
+So this module has exactly one alarm rule:
 
-    「人不在床上」持续超过一个时限（默认 30 分钟）还没回来 → 才报警。
+    "Out of bed" persisting past a time limit (default 30 minutes) with no
+    return → only then raise an alarm.
 
-下床本身只是被【记录】下来（几点下床、几点回来、去了多久），
-方便护工掌握老人的作息规律，不打扰任何人。
+The exit itself is only *recorded* (when they left, when they returned, how
+long they were gone), so caregivers can grasp the resident's routine without
+disturbing anyone.
 
-【别人是怎么做的？（照着行业做法简化）】
+How do others do it? (simplified from industry practice)
 
-咱家查了专利和论文，离床监测的核心思想非常朴素，不靠花哨的深度学习：
+We checked patents and papers: the core idea of bed-exit monitoring is very
+simple and does not rely on fancy deep learning:
 
-  1. 只看一个数：总压力（所有传感点的读数加起来）。
-     人在床上，这个数很大；人下床了，它归零。
-  2. 分三档状态，而不是"在/不在"两档：
-       在床（躺平）→ 坐起（重量掉一大半）→ 离床（几乎归零）
-  3. 阈值用「比例」而不是固定数：不同体重的人差别很大，
-     "低于峰值的 15% 算离床"对 50 斤和 180 斤的人都通用。
-  4. 两段防抖：
-       短防抖（10 秒）——过滤翻身、起身喝水这种"假离床"；
-       长时限（30 分钟）——确认下床后，超时未归才报警。
+  1. Look at just one number: total pressure (the sum of all sensor readings).
+     Person in bed → this number is large; person out of bed → it drops to zero.
+  2. Use three states instead of two ("in/out"):
+       in bed (lying flat) → sitting up (weight drops by more than half) → out of bed (nearly zero)
+  3. Use "ratios" for thresholds rather than fixed numbers: people of different
+     weights differ a lot. "Below 15% of peak means out of bed" works for both
+     a 50-jin and a 180-jin person.
+  4. Two-stage debounce:
+       short debounce (10 s) — filter out "false exits" like turning over or sitting up to drink;
+       long limit (30 min) — after an exit is confirmed, alarm only if they don't return in time.
 
-本模块就是把这套逻辑写成可测、可复用的函数。
+This module turns that logic into testable, reusable functions.
 
-【怎么用？】
+How to use it?
 
     import bed_monitor as bm
-    states = bm.detect_states(frames)    # 每帧人在哪个状态
-    exits  = bm.detect_exits(states)     # 每次离床的起止（只记录，不报警）
-    alarms = bm.detect_alarms(states)    # 超时未归才报警
+    states = bm.detect_states(frames)    # which state the person is in per frame
+    exits  = bm.detect_exits(states)     # start/end of each exit (record only, no alarm)
+    alarms = bm.detect_alarms(states)    # alarm only when gone past the time limit
 
 =============================================================================
 """
@@ -56,91 +66,103 @@ import numpy as np
 
 
 # ============================================================================
-# 监测阈值（业务参数，想调只改这里）
+# Monitoring thresholds (business parameters; change only here if you want to tune)
 # ============================================================================
 
-# 采样帧率：每秒采几帧。下面所有"时间"都靠它换算成"帧数"。
-# 真实系统帧率可能更高（比如每秒 10 帧），改这一个数，下面的时长自动跟着变。
+# Sampling frame rate: how many frames per second. All "times" below are converted
+# to "frame counts" via this value. A real system's frame rate may be higher
+# (e.g. 10 per second); change this one number and the durations below follow.
 FRAMES_PER_SECOND = 1
 
-# 短防抖：连续多少秒「离床」才认定"真的下床了"。
-# 翻身、起身喝水、床边坐一下，总压力会短暂掉下来，但够不到"真离床"，
-# 这几秒的防抖就是用来过滤这些毛刺的。
+# Short debounce: how many consecutive seconds of "out of bed" count as a real exit.
+# Turning over, sitting up to drink, or sitting at the edge briefly drops total
+# pressure, but not enough to count as "a real exit". This debounce filters out
+# those glitches.
 EXIT_CONFIRM_SECONDS = 10
 EXIT_CONFIRM_FRAMES = int(EXIT_CONFIRM_SECONDS * FRAMES_PER_SECOND)
 
-# 超时报警：确认下床后，多少分钟还没回来才拉警报。
-# 生活逻辑：下床（上厕所、喝水、散步）很正常，不该报警；
-# 只有"下床后迟迟不归"才危险——可能摔倒在厕所、晕倒在走廊、失智走失。
+# Timeout alarm: after an exit is confirmed, how many minutes without returning
+# before the alarm sounds. Life logic: getting out of bed (toilet, water, a short
+# walk) is normal and should not alarm; only "gone and not returning for a long
+# time" is dangerous — possibly a fall in the bathroom, a faint in the hallway,
+# or a confused resident wandering off.
 AWAY_TIMEOUT_MINUTES = 30
 AWAY_TIMEOUT_FRAMES = int(AWAY_TIMEOUT_MINUTES * 60 * FRAMES_PER_SECOND)
 
-# 总压力 = 峰值（这个人躺平时的满床重量）× 比例，落在哪个区间就是哪个状态
-IN_BED_RATIO = 0.60      # 总压力 >= 峰值的 60%  → 在床
-OUT_OF_BED_RATIO = 0.15  # 总压力 < 峰值的 15%    → 离床（中间那段 = 坐起）
+# total pressure = peak (this person's full-bed weight when lying flat) × ratio;
+# whichever band it falls into determines the state
+IN_BED_RATIO = 0.60      # total pressure >= 60% of peak  → in bed
+OUT_OF_BED_RATIO = 0.15  # total pressure < 15% of peak    → out of bed (the middle band = sitting up)
 
-# 三种状态（字符串常量，方便拼报告；中文名放在 STATE_CN 里）
+# Three states (string constants, convenient for building reports; display labels in STATE_CN)
 IN_BED = "in_bed"
 SITTING = "sitting"
 OUT_OF_BED = "out_of_bed"
-STATE_CN = {IN_BED: "在床", SITTING: "坐起", OUT_OF_BED: "离床"}
+STATE_CN = {IN_BED: "In bed", SITTING: "Sitting", OUT_OF_BED: "Out of bed"}
 
 
 # ============================================================================
-# 一、总压力：离床监测最核心的一个数
+# 1. Total pressure: the single most important number for bed-exit monitoring
 # ============================================================================
 
 def total_pressure(frame):
     """
-    算一张压力图的「总压力」= 所有传感点读数之和。
+    Compute the "total pressure" of one pressure map = the sum of all sensor
+    point readings.
 
-    为什么这个数这么重要？因为"有没有人"不取决于某个点，而是整张床
-    的"总重量"。人躺上去，几十个点一起变大，总和就很可观；人下床，
-    所有点一起归零，总和也归零。一个数就抓住了"在不在床"的本质。
+    Why is this number so important? Because "is someone there" doesn't depend
+    on any single point but on the bed's total "weight". A person lying down
+    makes dozens of points rise together, so the sum is substantial; a person
+    getting out makes every point drop to zero, so the sum is zero too. One
+    number captures the essence of "in bed or not".
 
-    参数：
-      frame —— 一张压力图（(H, W) 数组，或者任意形状，都会被摊平求和）
+    Args:
+      frame — one pressure map (an (H, W) array, or any shape; it will be
+              flattened and summed)
 
-    返回：
-      一个浮点数，总压力。
+    Returns:
+      A float: the total pressure.
     """
     return float(np.asarray(frame, dtype=float).sum())
 
 
 # ============================================================================
-# 二、状态机：把「总压力随时间的变化」翻译成「人在哪个状态」
+# 2. State machine: translate "total pressure over time" into "what state the person is in"
 # ============================================================================
 
 def detect_states(frames, in_ratio=IN_BED_RATIO, out_ratio=OUT_OF_BED_RATIO):
     """
-    输入一帧帧压力图，输出每帧的状态（在床 / 坐起 / 离床）。
+    Input a sequence of pressure frames, output the per-frame state (in bed /
+    sitting up / out of bed).
 
-    做法（三步，都很直白）：
-      1. 先算整个序列的「峰值总压力」，当作这个人的"满床重量"基线；
-      2. 每帧的总压力除以峰值，得到一个 0~1 的比例；
-      3. 按比例落档：
-            >= 60% → 在床
-            15%~60% → 坐起（人坐起来了，重量掉了一大半，但还压着床）
-            < 15%  → 离床（几乎没人了）
+    Approach (three straightforward steps):
+      1. Compute the "peak total pressure" of the whole sequence as this
+         person's "full-bed weight" baseline;
+      2. Divide each frame's total pressure by the peak to get a 0~1 ratio;
+      3. Bucket by ratio:
+            >= 60%  → in bed
+            15%~60% → sitting up (the person sat up; weight dropped by more than half but still on the bed)
+            < 15%   → out of bed (basically no one there)
 
-    为什么用「比例」不用固定数？因为 50 斤老人和 180 斤老人的满床重量
-    差了 3 倍多，固定数（比如"总压力 < 50 算离床"）没法通用。比例阈值
-    天然自适应体重，谁来了都成立。
+    Why use a "ratio" instead of a fixed number? Because a 50-jin and a 180-jin
+    person's full-bed weights differ by over 3×; a fixed number (e.g. "total
+    pressure < 50 means out of bed") can't be universal. Ratio thresholds
+    naturally adapt to body weight and hold for anyone.
 
-    参数：
-      frames    —— (n_frames, H, W) 压力图序列
-      in_ratio  —— "在床"的比例下限（默认 0.60）
-      out_ratio —— "离床"的比例上限（默认 0.15）
+    Args:
+      frames    — (n_frames, H, W) sequence of pressure maps
+      in_ratio  — lower bound ratio for "in bed" (default 0.60)
+      out_ratio — upper bound ratio for "out of bed" (default 0.15)
 
-    返回：
-      list[str]，长度 = 帧数，每个元素是 "in_bed" / "sitting" / "out_of_bed"
+    Returns:
+      list[str], length = number of frames, each element is "in_bed" / "sitting" / "out_of_bed"
     """
     frames = np.asarray(frames, dtype=float)
-    # 每帧的总压力（摊平成 (帧数, 所有点) 再按行求和）
+    # total pressure per frame (flatten to (n_frames, all points) then sum per row)
     totals = frames.reshape(frames.shape[0], -1).sum(axis=1)
     peak = totals.max()
     if peak <= 0:
-        peak = 1.0   # 全程没人压（全是 0），避免除零，状态会全判成"离床"
+        peak = 1.0   # nobody ever pressed (all zeros); avoid division by zero, states will all be "out of bed"
 
     states = []
     for t in totals:
@@ -155,84 +177,92 @@ def detect_states(frames, in_ratio=IN_BED_RATIO, out_ratio=OUT_OF_BED_RATIO):
 
 
 # ============================================================================
-# 三、离床事件：只记录，不报警（下床是很正常的事）
+# 3. Bed-exit events: record only, no alarm (getting out of bed is perfectly normal)
 # ============================================================================
 
 def detect_exits(states, confirm_frames=EXIT_CONFIRM_FRAMES):
     """
-    记录每一次「离床事件」：老人什么时候下床、什么时候回来、离开了多久。
+    Record every "bed-exit event": when the person got out, when they came back,
+    and how long they were gone.
 
-    注意：这个函数只【记录】，不报警——下床是很正常的事。
-    它给护工一张"作息表"：老人几点起夜、去了多久、几点回来，
-    用来掌握老人的活动规律。真正异常（比如频繁起夜、离床越来越久），
-    护工看这张表心里就有数。
+    Note: this function only *records*; it does not alarm — getting out of bed
+    is perfectly normal. It gives the caregiver a "routine table": when the
+    person got up at night, how long they were gone, when they returned, so the
+    caregiver can grasp the resident's activity pattern. Truly abnormal patterns
+    (e.g. frequent night exits, progressively longer exits) are things the
+    caregiver can spot by looking at this table.
 
-    防抖：连续离床不足 confirm_frames 帧（比如翻身造成的 1~2 帧毛刺）
-    不算一次真正的"下床"，会被忽略掉。
+    Debounce: an out-of-bed stretch shorter than confirm_frames (e.g. a 1~2 frame
+    glitch from turning over) does not count as a real "exit" and is ignored.
 
-    参数：
-      states         —— detect_states 的输出，一列状态字符串
-      confirm_frames —— 离床至少持续多少帧才算一次有效事件（默认 10）
+    Args:
+      states         — output of detect_states, a sequence of state strings
+      confirm_frames — how many frames out of bed at minimum counts as a valid event (default 10)
 
-    返回：
-      list[tuple]，每个元素 (start, end)，表示一次离床的帧区间 [start, end)。
-      持续时间 = end - start 帧。
+    Returns:
+      list[tuple], each element (start, end) marking one exit's frame interval
+      [start, end). Duration = end - start frames.
     """
     exits = []
     start = None
     for i, s in enumerate(states):
         if s == OUT_OF_BED:
             if start is None:
-                start = i          # 进入离床，记下起点
+                start = i          # entered out-of-bed, record the start
         else:
             if start is not None:
-                # 离开了 confirm_frames 帧以上，才算一次有效"下床"
+                # only counts as a valid "exit" if gone for confirm_frames or more
                 if i - start >= confirm_frames:
                     exits.append((start, i))
                 start = None
-    # 序列末尾还在离床（一直没回来），也要收尾记一笔
+    # still out of bed at the end of the sequence (never returned); close it out
     if start is not None and len(states) - start >= confirm_frames:
         exits.append((start, len(states)))
     return exits
 
 
 # ============================================================================
-# 四、报警：超时未归才拉响，人一回来立即解除
+# 4. Alarm: only sounds when gone past the time limit, and clears the moment the person returns
 # ============================================================================
 
 def detect_alarms(states, away_timeout=AWAY_TIMEOUT_FRAMES):
     """
-    离床超时报警：老人下床本身【不报警】，下床后迟迟不回来才报警。
+    Bed-exit timeout alarm: getting out of bed itself does NOT alarm; only
+    staying gone too long does.
 
-    生活里的真实逻辑：
-      - 老人夜里下床上个厕所、喝口水、起来溜达两步，都太正常了，
-        一离床就拉警报，护工没两天就会把系统静音，报警就废了。
-      - 真正危险的是「下床后久久没回来」——可能是摔倒在卫生间、
-        晕倒在走廊，或者失智老人半夜走出房间走丢了。
+    Real-life logic:
+      - Getting up at night for the toilet, a drink, or a short stroll is all
+        normal. Alarm on every exit and the caregiver mutes the system within
+        days, rendering the alarm useless.
+      - What's truly dangerous is "gone and not back for a long time" — possibly
+        a fall in the bathroom, a faint in the hallway, or a confused resident
+        wandering out of the room.
 
-    所以本函数只认一件事：人不在床上（out_of_bed）【连续】持续了多久。
-      - 持续不满 away_timeout 帧 → 平安，不报警；
-      - 持续满 away_timeout 帧 → 拉响"离床超时"警报；
-      - 人一回到床上（in_bed 躺下，或 sitting 坐回床边）→ 立即解除、重新计时。
+    So this function only cares about one thing: how long the person has been
+    *continuously* out of bed (out_of_bed).
+      - Fewer than away_timeout frames → safe, no alarm;
+      - away_timeout frames or more → sound the "bed-exit timeout" alarm;
+      - the moment the person is back in bed (in_bed lying down, or sitting back
+        at the edge) → clear immediately and restart the timer.
 
-    参数：
-      states       —— detect_states 的输出，一列状态字符串
-      away_timeout —— 离床持续多少帧才报警（默认 1800 帧 = 30 分钟）
+    Args:
+      states       — output of detect_states, a sequence of state strings
+      away_timeout — how many consecutive out-of-bed frames trigger the alarm (default 1800 frames = 30 minutes)
 
-    返回：
-      list[bool]，长度 = 帧数，True 表示该帧在报警
+    Returns:
+      list[bool], length = number of frames, True means that frame is alarming
     """
-    away_count = 0      # 连续离床的计数器（单位：帧）
-    alarming = False    # 当前是否在报警
+    away_count = 0      # consecutive out-of-bed counter (unit: frames)
+    alarming = False    # whether currently alarming
     alarms = []
 
     for s in states:
         if s == OUT_OF_BED:
             away_count += 1
             if away_count >= away_timeout:
-                alarming = True    # 离床够久还没回来，拉响
+                alarming = True    # out of bed long enough with no return, sound the alarm
         else:
-            # 人回来了（躺下或坐回床边），都是平安的，解除报警并清零计时
+            # person is back (lying down or sitting at the edge) — safe; clear the alarm and reset the timer
             away_count = 0
             alarming = False
         alarms.append(alarming)

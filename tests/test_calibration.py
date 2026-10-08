@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""标定工具链的测试：每一招都要能单独验证"真的修对了"。"""
+"""Tests for the calibration toolchain: each move must be verifiable on its own as "really fixed it"."""
 
 import numpy as np
 import pytest
@@ -17,21 +17,21 @@ from calibration import (
 
 class TestForward:
     def test_no_imperfections_returns_ideal(self):
-        """没有毛病时，读数就该等于真实压力。"""
+        """With no faults, the reading should equal the true pressure."""
         ideal = np.array([[1.0, 2.0], [3.0, 4.0]])
         raw = forward(ideal, gain=np.ones_like(ideal),
                       offset=np.zeros_like(ideal), c=0.0, noise=0.0)
         np.testing.assert_allclose(raw, ideal)
 
     def test_offset_shifts_baseline(self):
-        """零点偏移会把读数整体抬高。"""
+        """Zero offset lifts the whole reading."""
         ideal = np.zeros((2, 2))
         offset = np.full((2, 2), 5.0)
         raw = forward(ideal, np.ones((2, 2)), offset)
         np.testing.assert_allclose(raw, 5.0)
 
     def test_gain_scales(self):
-        """灵敏度会放大读数。"""
+        """Sensitivity amplifies the reading."""
         ideal = np.full((2, 2), 10.0)
         gain = np.full((2, 2), 1.5)
         raw = forward(ideal, gain, np.zeros((2, 2)))
@@ -54,7 +54,7 @@ class TestCorrectGain:
         np.testing.assert_allclose(out, [[10.0, 10.0]])
 
     def test_zero_gain_protected(self):
-        """增益为 0 时不能除 0，要安全跳过。"""
+        """When gain is 0, must not divide by zero; skip safely."""
         raw = np.array([[10.0, 10.0]])
         gain = np.array([[0.0, 2.0]])
         out = correct_gain(raw, gain)
@@ -64,16 +64,16 @@ class TestCorrectGain:
 
 class TestCorrectCrosstalk:
     def test_roundtrip(self):
-        """串扰后校正，应该能基本还原原图。"""
+        """After crosstalk then correction, the original map should be roughly recovered."""
         rng = np.random.default_rng(0)
         x = rng.uniform(0, 100, size=(8, 12))
         c = 0.1
-        # 正向串扰
+        # forward crosstalk
         padded = np.pad(x, 1, mode="edge")
         neighbors = (padded[:-2, 1:-1] + padded[2:, 1:-1] +
                      padded[1:-1, :-2] + padded[1:-1, 2:]) / 4.0
         raw = (1 - c) * x + c * neighbors
-        # 反向校正
+        # reverse correction
         out = correct_crosstalk(raw, c)
         np.testing.assert_allclose(out, x, atol=1e-6)
 
@@ -82,14 +82,14 @@ class TestTemperature:
     def test_offset_compensation(self):
         raw = np.array([[40.0]])
         tco = np.array([[2.0]])
-        # 从 40 度回到 25 度参考，漂了 15 度 × 2 = 30，应减掉
+        # going from 40 degrees back to the 25-degree reference, drifted 15 degrees × 2 = 30, should be subtracted
         out = correct_temperature_offset(raw, temp=40.0, t_ref=25.0, tco_map=tco)
         np.testing.assert_allclose(out, [[10.0]])
 
     def test_gain_compensation(self):
         raw = np.array([[110.0]])
         tcs = np.array([[0.01]])
-        # 增益漂了 15 度 × 1% = 15%，读数 110 是被 1.15 放大后的，除以它
+        # gain drifted 15 degrees × 1% = 15%; the reading 110 was amplified by 1.15, divide by it
         out = correct_temperature_gain(raw, temp=40.0, t_ref=25.0, tcs_map=tcs)
         np.testing.assert_allclose(out, [[110.0 / 1.15]])
 
@@ -116,7 +116,7 @@ class TestHysteresis:
 
 class TestEstimate:
     def test_estimate_gain_recovers_true_gain(self):
-        """增益标定应该能近似还原真实的灵敏度。"""
+        """Gain calibration should approximately recover the true sensitivity."""
         rng = np.random.default_rng(1)
         gain_true = rng.normal(1.0, 0.15, size=(8, 12))
         offset = rng.uniform(0, 8, size=(8, 12))
@@ -133,15 +133,15 @@ class TestEstimate:
 
 class TestCalibratePipeline:
     def test_pipeline_reduces_error(self):
-        """完整流水线：脏数据经过校准，误差应该大幅下降。"""
+        """Full pipeline: after calibration the dirty data's error should drop significantly."""
         rng = np.random.default_rng(2)
         H, W = 8, 12
         c = 0.1
-        # 噪声调小：标定消的是"系统误差"（增益/偏移/串扰），
-        # 消不掉随机噪声。噪声太大时改善率会被噪声"稀释"看不清。
+        # Keep noise small: calibration removes "systematic error" (gain/offset/crosstalk),
+        # not random noise. With too much noise the improvement is "diluted" and hard to see.
         noise_std = 0.5
 
-        # 构造一个"人形"理想图（几个高斯鼓包）
+        # build a "human-shaped" ideal map (a few Gaussian bumps)
         yy, xx = np.mgrid[0:H, 0:W]
         ideal = (80 * np.exp(-((xx - 6) ** 2 / 8 + (yy - 5) ** 2 / 4)) +
                  40 * np.exp(-((xx - 6) ** 2 / 6 + (yy - 1) ** 2 / 2)))
@@ -152,7 +152,7 @@ class TestCalibratePipeline:
         raw = forward(ideal, gain_true, offset, c,
                       rng.normal(0, noise_std, size=(H, W)))
 
-        # 标定动作
+        # calibration actions
         baseline = estimate_baseline(offset, c=c, noise_std=noise_std, rng=rng)
         ideal_ref = np.full((H, W), 50.0)
         raw_ref = forward(ideal_ref, gain_true, offset, c,
@@ -163,7 +163,7 @@ class TestCalibratePipeline:
 
         err_raw = mean_abs_error(raw, ideal)
         err_clean = mean_abs_error(cleaned, ideal)
-        assert improvement(err_raw, err_clean) > 50  # 至少缩小一半
+        assert improvement(err_raw, err_clean) > 50  # shrink by at least half
 
 
 class TestMetrics:

@@ -2,30 +2,31 @@
 # -*- coding: utf-8 -*-
 """
 =============================================================================
-真实数据训练链 —— 把 PoPu 真人数据喂给神经网络，得到「真实准确率」
+Real-data training chain — feed PoPu real-person data into the neural network
+to get the "real accuracy"
 =============================================================================
 
-【这个脚本跟 train_pose_classifier.py 有什么不同？】
+[How is this script different from train_pose_classifier.py?]
 
-  train_pose_classifier.py  → 合成数据（数学造的），准确率 100%（理想值）
-  本脚本                    → PoPu 真人数据（60 人），准确率是【真实数字】
+  train_pose_classifier.py  → synthetic data (math-generated), accuracy 100% (ideal)
+  this script               → PoPu real-person data (60 people), accuracy is the [real number]
 
-真实数据比合成数据难得多：
-  - 信号弱：减基线后只有 0~12 的起伏（合成数据是 0~150）
-  - 个体差异：60 个人的身高体重床垫软硬都不同
-  - 左右镜像：左侧卧和右侧卧的图形是镜像关系，最容易混
+Real data is much harder than synthetic:
+  - weak signal: only 0~12 of variation after baseline subtraction (synthetic is 0~150)
+  - individual differences: 60 people with different height, weight, and mattress firmness
+  - left-right mirroring: left-side and right-side maps are mirror images, easiest to confuse
 
-【两种考试，两种分数（这是本脚本最重要的设计）】
+[Two exams, two scores (this is the most important design of this script)]
 
-  考试① 随机切分：同一个人的数据可能一半训练一半考试
-        → 模型「见过这个人」，分数偏高
-  考试② 按人切分：训练用 48 人，考试用另外 12 个陌生人
-        → 模型「没见过考试里的人」，这才是真实部署场景
-          （新用户买回家，模型没见过他）的真正性能
+  Exam 1 random split: one person's data may be half training half testing
+        → the model "has seen this person", score is inflated
+  Exam 2 split by person: train on 48 people, test on 12 other strangers
+        → the model "has never seen the people in the test", which is the real
+          deployment scenario (a new user buys it home and the model has never seen them)
 
-  两个分数都报。对外的「真实准确率」以考试②为准——它不掺水。
+  Both scores are reported. The public-facing "real accuracy" is Exam 2 — it has no water in it.
 
-【怎么运行】
+[How to run]
 
     python3 src/train_real_pose.py
 
@@ -50,7 +51,7 @@ from sleep_staging import cohens_kappa
 from sensor_config import OUT_DIR, FILE_PUPU_TRAINING
 
 
-# ---- 训练超参数（跟合成版保持同量级，公平对比）----
+# ---- Training hyperparameters (same order of magnitude as the synthetic version, for a fair comparison) ----
 N_HIDDEN = 32
 N_EPOCH = 150
 BATCH = 32
@@ -59,7 +60,7 @@ SEED = 0
 
 
 def train_model(X_train, y_train, n_classes, n_hidden, n_epoch, batch, lr, seed):
-    """训练一个模型，返回 (模型, 损失曲线, 训练准确率曲线)。"""
+    """Train a model and return (model, loss curve, training accuracy curve)."""
     model = TinyMLP(n_input=X_train.shape[1], n_hidden=n_hidden,
                     n_output=n_classes, seed=seed)
     losses, train_accs = [], []
@@ -78,7 +79,7 @@ def train_model(X_train, y_train, n_classes, n_hidden, n_epoch, batch, lr, seed)
 
 
 def evaluate(model, X_test, y_test, classes):
-    """考试：返回 (准确率, kappa, 混淆矩阵)。"""
+    """Exam: return (accuracy, kappa, confusion matrix)."""
     acc = model.accuracy(X_test, y_test)
     preds = model.predict(X_test)
     kappa = cohens_kappa(y_test, preds, len(classes))
@@ -90,52 +91,52 @@ def evaluate(model, X_test, y_test, classes):
 
 def main(n_hidden=N_HIDDEN, n_epoch=N_EPOCH, batch=BATCH, lr=LR, seed=SEED):
     print("=" * 62)
-    print(" 真实数据训练：PoPu 60 人 × 4 种睡姿（仰卧/左侧卧/右侧卧/俯卧）")
+    print(" Real-data training: PoPu 60 people × 4 poses (supine/left side/right side/prone)")
     print("=" * 62)
     print()
 
-    # ---- 1. 加载真实数据 ----
+    # ---- 1. Load the real data ----
     X, y, classes, meta = pl.load_dataset(seed=seed)
-    print(f"[1/4] 数据已加载：{len(X)} 个真实样本，每类 {np.bincount(y)[0]} 个")
+    print(f"[1/4] Data loaded: {len(X)} real samples, {np.bincount(y)[0]} per class")
 
-    # ---- 2. 考试① 随机切分（模型可能「见过本人」）----
+    # ---- 2. Exam 1 random split (model may have "seen the person") ----
     Xtr1, ytr1, Xte1, yte1 = pl.split_train_test(X, y, seed=seed)
     m1, losses1, _ = train_model(Xtr1, ytr1, len(classes),
                                  n_hidden, n_epoch, batch, lr, seed)
     acc1, kappa1, _ = evaluate(m1, Xte1, yte1, classes)
-    print(f"[2/4] 考试① 随机切分（模型见过本人）：准确率 {acc1*100:.1f}%，κ={kappa1:.3f}")
+    print(f"[2/4] Exam 1 random split (model has seen the person): accuracy {acc1*100:.1f}%, κ={kappa1:.3f}")
 
-    # ---- 3. 考试② 按人切分（考试里全是陌生人）——主数字 ----
+    # ---- 3. Exam 2 split by person (test set is all strangers) — the headline number ----
     Xtr2, ytr2, Xte2, yte2 = pl.split_by_volunteer(X, y, meta, seed=seed)
-    n_train_v = len(set(m["volunteer_id"] for m in meta)) - 12   # 训练人数
+    n_train_v = len(set(m["volunteer_id"] for m in meta)) - 12   # number of training people
     m2, losses2, _ = train_model(Xtr2, ytr2, len(classes),
                                  n_hidden, n_epoch, batch, lr, seed)
     acc2, kappa2, cm = evaluate(m2, Xte2, yte2, classes)
-    print(f"[3/4] 考试② 按人切分（考试全是陌生人）：准确率 {acc2*100:.1f}%，κ={kappa2:.3f}")
-    print(f"      （训练用 {n_train_v} 人，考试用 12 个没见过的陌生人，共 {len(Xte2)} 个样本）")
+    print(f"[3/4] Exam 2 split by person (test is all strangers): accuracy {acc2*100:.1f}%, κ={kappa2:.3f}")
+    print(f"      (trained on {n_train_v} people, tested on 12 unseen strangers, {len(Xte2)} samples total)")
 
-    # ---- 4. 混淆矩阵 + 每类准确率（以考试②为准）----
-    print(f"[4/4] 陌生人考试的混淆矩阵（行=真实，列=预测）：")
+    # ---- 4. Confusion matrix + per-class accuracy (based on Exam 2) ----
+    print(f"[4/4] Confusion matrix on the stranger exam (row = true, column = predicted):")
     print()
-    print("      每类准确率：")
+    print("      Per-class accuracy:")
     for i, cls in enumerate(classes):
         c, t = cm[i, i], cm[i].sum()
-        print(f"        {pl.POSE_LABELS_CN[cls]:>4}({cls:>6})：{c}/{t} = {c/t*100:.0f}%")
+        print(f"        {pl.POSE_LABELS_CN[cls]:>4}({cls:>6}): {c}/{t} = {c/t*100:.0f}%")
     print()
     header = "              " + "  ".join(f"{pl.POSE_LABELS_CN[c]:>4}" for c in classes)
     print(header)
     for i, cls in enumerate(classes):
         row = "  ".join(f"{v:>4}" for v in cm[i])
-        print(f"        真实{pl.POSE_LABELS_CN[cls]:<4} {row}")
+        print(f"        true {pl.POSE_LABELS_CN[cls]:<4} {row}")
 
-    # ---- 诚实解读 ----
+    # ---- Honest interpretation ----
     print()
-    print("      ── 诚实解读（本次实验的事实，非客套话）──")
-    print(f"      · 合成数据（数学造的）：3 类 100% —— 只证明算法逻辑对")
-    print(f"      · 真实·见过本人：{acc1*100:.1f}% —— 含「记住用户」的水分")
-    print(f"      · 真实·陌生人：{acc2*100:.1f}% —— 新用户买回家就用，这才是真实性能")
-    print(f"      · 两者的差距 = 模型「记住老用户」带来的水分，")
-    print(f"        写进 README、对外宣传，一律用陌生人那个数。")
+    print("      ── Honest interpretation (facts of this run, not polite filler) ──")
+    print(f"      · Synthetic data (math-generated): 3 classes 100% — only proves the algorithm logic is right")
+    print(f"      · Real · seen the person: {acc1*100:.1f}% — contains the 'memorized the user' inflation")
+    print(f"      · Real · stranger: {acc2*100:.1f}% — a new user buys it and uses it right away; this is the real performance")
+    print(f"      · The gap between the two = the inflation from the model 'remembering old users';")
+    print(f"        in the README and all public claims, always use the stranger number.")
 
     plot(losses2, cm, classes, acc2, kappa2)
     return acc2, kappa2
@@ -171,12 +172,12 @@ def plot(losses, cm, classes, test_acc, kappa):
     path = os.path.join(OUT_DIR, FILE_PUPU_TRAINING)
     plt.savefig(path, dpi=200, bbox_inches="tight")
     plt.close(fig)
-    print(f"\n 图已保存：{path}")
+    print(f"\n Figure saved: {path}")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="用 PoPu 真实数据训练睡姿分类器（4 类，含陌生人泛化考试）")
+        description="Train a pose classifier on PoPu real data (4 classes, including stranger-generalization exam)")
     parser.add_argument("--epochs", type=int, default=N_EPOCH)
     parser.add_argument("--batch", type=int, default=BATCH)
     parser.add_argument("--lr", type=float, default=LR)

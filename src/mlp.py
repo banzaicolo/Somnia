@@ -2,31 +2,36 @@
 # -*- coding: utf-8 -*-
 """
 =============================================================================
-迷你神经网络（纯 numpy 手写版）—— 不用任何深度学习框架，从零写一个分类器
+Mini neural network (pure numpy, written from scratch) — build a classifier
+without any deep learning framework
 =============================================================================
 
-【为什么不用现成框架（PyTorch 之类）？】
+Why not use an off-the-shelf framework (PyTorch, etc.)?
 
-两个原因：
-1. 你机器上没装，装它要好几百 MB；这个任务（96 个数分类 3 种睡姿）
-   根本用不着那么重的家伙。
-2. 手写一遍，你才真的懂"神经网络到底在干嘛"。框架把魔法都藏起来了，
-   手写版把每一步摊开给你看。以后你用 PyTorch 时，心里是有底的。
+Two reasons:
+1. It isn't installed on your machine, and installing it takes hundreds of MB.
+   This task (classifying 96 numbers into 3 sleep postures) doesn't need
+   anything that heavy.
+2. Writing it by hand is the only way to truly understand "what a neural
+   network actually does". Frameworks hide the magic; a hand-written version
+   lays out every step in front of you. When you later use PyTorch, you'll
+   know what's going on under the hood.
 
-【这个网络长什么样？】
+What does this network look like?
 
-    输入(96个压力值) → 隐层(32个神经元,过ReLU) → 输出(3个睡姿的分数) → 概率
+    input (96 pressure values) → hidden (32 neurons, ReLU) → output (3 posture scores) → probabilities
 
-每条连线都有一个"权重"——权重就是网络学到的"经验"。
-训练就是不断微调这些权重，让预测越来越准。
+Every connection has a "weight" — the weight is the "experience" the network
+learned. Training is nothing but repeatedly nudging those weights so the
+predictions get more accurate.
 
-【训练的原理，一句话】
+The training principle, in one sentence:
 
-    前向传播：数据从前往后流，得出预测 → 算"错得多离谱"（损失）
-    反向传播：从后往前推，算出每个权重该背多少责任（梯度）
-    更新：每个权重朝"让错误变小"的方向挪一小步
+    Forward pass: data flows forward, produce a prediction → measure "how far off" (loss)
+    Backward pass: work backward, compute how much each weight is to blame (gradient)
+    Update: move each weight one small step in the direction that reduces the error
 
-重复几千次，网络就"学会"了。就这么简单。
+Repeat a few thousand times and the network "learns". That's all there is.
 
 =============================================================================
 """
@@ -35,29 +40,33 @@ import numpy as np
 
 
 def relu(x):
-    """ReLU 激活函数：负数一律归零，正数原样通过。
-    模仿真实神经元"刺激不够就不放电"。没有它，多层网络再深也等于一层。"""
+    """ReLU activation: negatives are zeroed out, positives pass through unchanged.
+    Mimics real neurons that don't fire until sufficiently stimulated. Without
+    it, no matter how deep the network is it collapses to a single layer."""
     return np.maximum(0, x)
 
 
 def softmax(z):
-    """把任意分数变成"加起来等于 1 的概率"。
-    比如 [3.0, 1.0, 0.1] → [0.84, 0.11, 0.04]，意思是有 84% 把握是第一类。
-    减 max 是数值保护：防止 exp 溢出，不影响结果。"""
+    """Turn arbitrary scores into probabilities that sum to 1.
+    E.g. [3.0, 1.0, 0.1] → [0.84, 0.11, 0.04], meaning 84% confidence in the
+    first class. Subtracting the max is a numerical safeguard: it prevents exp
+    overflow without changing the result."""
     z = z - z.max(axis=1, keepdims=True)
     e = np.exp(z)
     return e / e.sum(axis=1, keepdims=True)
 
 
 class TinyMLP:
-    """两层全连接网络：输入层 → 隐层(ReLU) → 输出层(softmax)。"""
+    """Two-layer fully-connected network: input → hidden (ReLU) → output (softmax)."""
 
     def __init__(self, n_input, n_hidden, n_output, seed=0):
         """
-        初始化权重。一开始是小的随机数——网络出生时什么都不会，
-        随机猜。训练就是把这些数慢慢调成"有道理"的值。
+        Initialize the weights. They start as small random numbers — a newborn
+        network knows nothing and just guesses. Training slowly tunes these
+        numbers into "sensible" values.
 
-        乘 0.5/sqrt(n_input) 是初始化技巧：让初始输出不至于太大或太小。
+        Multiplying by 0.5/sqrt(n_input) is an initialization trick: it keeps
+        the initial outputs from being too large or too small.
         """
         rng = np.random.default_rng(seed)
         self.W1 = rng.normal(0, 0.5, size=(n_input, n_hidden)) / np.sqrt(n_input)
@@ -66,66 +75,71 @@ class TinyMLP:
         self.b2 = np.zeros(n_output)
 
     # ------------------------------------------------------------------
-    # 前向传播：数据从前往后流
+    # Forward pass: data flows forward
     # ------------------------------------------------------------------
     def forward(self, X):
         """
-        X 是 (样本数, 96)。
+        X has shape (n_samples, 96).
 
-        返回 (概率, 缓存)。缓存里存着中间结果，反向传播时要用，
-        就像你做数学题的草稿纸，检查答案时得回看。
+        Returns (probabilities, cache). The cache stores intermediate results
+        needed by the backward pass — like the scratch paper you keep when
+        solving a math problem so you can review it while checking your answer.
         """
-        z1 = X @ self.W1 + self.b1          # 加权求和：每个隐层神经元
-        a1 = relu(z1)                        # 过激活函数
-        z2 = a1 @ self.W2 + self.b2          # 输出层加权求和
-        probs = softmax(z2)                  # 分数 → 概率
+        z1 = X @ self.W1 + self.b1          # weighted sum for each hidden neuron
+        a1 = relu(z1)                        # apply the activation
+        z2 = a1 @ self.W2 + self.b2          # weighted sum for the output layer
+        probs = softmax(z2)                  # scores → probabilities
         return probs, (X, z1, a1)
 
     # ------------------------------------------------------------------
-    # 反向传播：从后往前算"每个权重该背多少责任"
+    # Backward pass: work backward to compute "how much each weight is to blame"
     # ------------------------------------------------------------------
     def backward(self, cache, y_onehot):
         """
-        y_onehot 是"标准答案"的独热编码。
-        比如正确答案是"侧卧"（编号1），三类就写成 [0, 1, 0]。
+        y_onehot is the one-hot encoding of the ground-truth answer.
+        For example, if the correct class is "side" (index 1), three classes
+        are written as [0, 1, 0].
 
-        核心公式来自微积分的链式法则。最漂亮的一步：
-        softmax + 交叉熵的梯度恰好等于 (预测概率 - 真实标签)，
-        直觉就是「预测错得越离谱，惩罚越大」。
+        The core formulas come from the chain rule of calculus. The nicest step:
+        the gradient of softmax + cross-entropy equals exactly (predicted prob -
+        true label). Intuitively: the more wrong the prediction, the bigger the
+        penalty.
         """
         X, z1, a1 = cache
         n = X.shape[0]
 
-        # 输出层的"责任"：预测概率 - 真实答案
+        # Output-layer "responsibility": predicted probability - ground truth
         dz2 = (self._last_probs - y_onehot) / n
-        # 这个责任怎么分给 W2 的每个权重：用输入(隐层输出)加权
+        # Split that responsibility among each W2 weight, weighted by the input (hidden output)
         dW2 = a1.T @ dz2
         db2 = dz2.sum(axis=0)
 
-        # 责任继续往回传到隐层
+        # Propagate the responsibility back to the hidden layer
         da1 = dz2 @ self.W2.T
-        dz1 = da1 * (z1 > 0)                 # ReLU 的梯度：正数原样传，负数断了
+        dz1 = da1 * (z1 > 0)                 # ReLU gradient: pass positives through, zero negatives
         dW1 = X.T @ dz1
         db1 = dz1.sum(axis=0)
 
         return dW1, db1, dW2, db2
 
     # ------------------------------------------------------------------
-    # 训练一步：前向 → 算损失 → 反向 → 更新
+    # One training step: forward → compute loss → backward → update
     # ------------------------------------------------------------------
     def train_step(self, X, y, lr=0.5):
         """
-        跑完"前向→反向→更新"一整套，返回这一步的平均损失。
+        Run the full "forward → backward → update" cycle and return the average
+        loss for this step.
 
-        lr 是学习率：每个权重每次挪多大步。太大→学过头来回震荡，
-        太小→学得慢。0.5 对这个任务合适。
+        lr is the learning rate: how big a step each weight takes per update.
+        Too big → overshoots and oscillates; too small → learns slowly.
+        0.5 works well for this task.
         """
         n = len(X)
         probs, cache = self.forward(X)
-        self._last_probs = probs             # backward 里要用（见上）
+        self._last_probs = probs             # used in backward (see above)
 
-        # 交叉熵损失：只看"正确类别"上预测的概率。
-        # 预测对了（概率→1）损失→0；预测错了（概率→0）损失→∞。
+        # Cross-entropy loss: only look at the probability of the correct class.
+        # Predicted correctly (prob → 1) → loss → 0; wrong (prob → 0) → loss → ∞.
         eps = 1e-12
         loss = -np.log(probs[np.arange(n), y] + eps).mean()
 
@@ -133,7 +147,7 @@ class TinyMLP:
         y_onehot[np.arange(n), y] = 1.0
         dW1, db1, dW2, db2 = self.backward(cache, y_onehot)
 
-        # 梯度下降：每个权重朝负梯度方向挪 lr 那么多
+        # Gradient descent: move each weight by lr in the direction of the negative gradient
         self.W1 -= lr * dW1
         self.b1 -= lr * db1
         self.W2 -= lr * dW2
@@ -142,13 +156,13 @@ class TinyMLP:
         return float(loss)
 
     # ------------------------------------------------------------------
-    # 预测：训练完之后怎么用
+    # Prediction: how the trained network is used
     # ------------------------------------------------------------------
     def predict(self, X):
-        """返回每个样本预测的类别编号（概率最大的那个）。"""
+        """Return the predicted class index (argmax probability) for each sample."""
         probs, _ = self.forward(X)
         return probs.argmax(axis=1)
 
     def accuracy(self, X, y):
-        """在 X 上考试：预测对了多少比例。"""
+        """Score on X: the fraction of predictions that are correct."""
         return float((self.predict(X) == y).mean())

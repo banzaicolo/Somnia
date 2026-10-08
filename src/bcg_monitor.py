@@ -2,60 +2,66 @@
 # -*- coding: utf-8 -*-
 """
 =============================================================================
-bcg_monitor.py —— 呼吸/心跳监测（BCG，心冲击图）
+bcg_monitor.py — breathing/heartbeat monitoring (BCG, ballistocardiography)
 =============================================================================
 
-【这东西解决什么问题？】
+What problem does this solve?
 
-人躺在床上，心脏每跳一下、胸廓每呼吸一次，身体都会产生极其微小的
-震动，通过床垫传到下面的压力传感器。BCG（心冲击图，英文
-Ballistocardiography 的缩写）就是"靠这些微震动，无感地测出呼吸和心跳"。
+When a person lies in bed, every heartbeat and every breath produces extremely
+tiny vibrations that travel through the mattress to the pressure sensor underneath.
+BCG (ballistocardiography) is "using these micro-vibrations to measure breathing
+and heartbeat without any contact".
 
-跟手表不一样：手表要贴着皮肤、用光照测血流；BCG 什么都不用戴，
-人往床上一躺，传感器就在床垫下面把呼吸和心跳"听"出来。
+Unlike a watch: a watch must touch the skin and use light to measure blood flow;
+BCG requires wearing nothing — just lie down, and the sensor under the mattress
+"hears" your breathing and heartbeat.
 
-【能测什么、不能测什么？（诚实的边界）】
+What can and can't it measure? (the honest boundary)
 
-  ~ 呼吸率 —— 在合成信号上能稳定提取，但【真实性能还没验证】。
-             现在只测过数学造的纯正弦信号，属于「自己出题自己答」，
-             不能当作真实性能的证据。
-  ~ 心率   —— 合成信号上能提取，但真实信号里，呼吸的「回声」（谐波）
-             会落进心跳的频段、把心率带偏。要解决得先做谐波消除，
-             或用时域直接数心跳峰（这两样都还没做）。
-  ✅ 呼吸暂停 —— 靠「呼吸频段能量相对下降」来判断，逻辑成立，
-             合成信号上验证通过。
-  ❌ 血氧（SpO2）—— 物理上测不到。血氧必须用光透过皮肤测
-             （PPG 光电容积脉搏波），床垫只有震动信号，没有这个信息。
-             别承诺这个功能。
+  ~ breathing rate — can be stably extracted on synthesized signals, but real-world
+              performance has NOT been verified. Only pure mathematically-generated
+              sine signals have been tested so far, which is "grading your own
+              homework" and must not be treated as evidence of real performance.
+  ~ heart rate — can be extracted on synthesized signals, but in real signals the
+              "echo" of breathing (harmonics) falls into the heartbeat band and
+              biases the heart rate. Fixing this requires harmonic removal first,
+              or counting heartbeat peaks directly in the time domain (neither done yet).
+  ✅ apnea — judged by "relative drop in breathing-band energy"; the logic holds,
+              and it has passed verification on synthesized signals.
+  ❌ blood oxygen (SpO2) — physically impossible to measure. Blood oxygen requires
+             light shining through the skin (PPG, photoplethysmography); the mattress
+             only has vibration signals and carries no such information.
+             Do not promise this feature.
 
-【本模块的验证状态（写清楚，别含糊）】
+This module's verification status (stated clearly, no ambiguity):
 
-  · 已验证：合成信号上的「按频率切」逻辑正确
-  · 未验证：真实床垫信号上的误差范围（缺同步心电 / 呼吸带参考数据）
-  · 已知会翻车的场景：呼吸波形带谐波时，心率会被锁到呼吸的 3 次谐波上
+  · Verified: the "split by frequency" logic is correct on synthesized signals
+  · Not verified: the error range on real mattress signals (missing synchronized ECG / breathing-belt reference data)
+  · Known failure scenario: when the breathing waveform has harmonics, the heart rate
+    can lock onto the 3rd harmonic of breathing
 
-【核心原理：一段信号里，混着三个"节奏"】
+Core principle: one signal contains three mixed "rhythms"
 
-床垫读到的压力信号，是几样东西叠加在一起的：
+The pressure signal the mattress reads is a superposition of several things:
 
-  1. 静态体压（直流）—— 人躺上去的"基础重量"，是个不变的常数，去掉即可。
-  2. 呼吸波动（低频）—— 胸廓一起一伏，让压力缓慢地上下波动。
-     频率低：成人静息约 12~20 次/分 = 0.2~0.33 Hz（赫兹，每秒几次）。
-  3. 心跳波动（高频）—— 心脏泵血的微小震动。
-     频率高：约 60~100 次/分 = 1~1.67 Hz。
-  4. 噪声 —— 传感器自己的底噪，像老电视雪花。
+  1. static body pressure (DC) — the "base weight" of the person lying down, a constant; just remove it.
+  2. breathing fluctuation (low frequency) — the chest rising and falling makes the pressure slowly oscillate.
+     Low frequency: adults at rest about 12~20 breaths/min = 0.2~0.33 Hz (hertz, cycles per second).
+  3. heartbeat fluctuation (high frequency) — the tiny vibration of the heart pumping blood.
+     High frequency: about 60~100 beats/min = 1~1.67 Hz.
+  4. noise — the sensor's own noise floor, like TV static.
 
-要把呼吸率和心率"挖"出来，诀窍就是：**把信号按频率切开**。
-呼吸在低频段、心跳在高频段，各找各的，互不干扰。
-这把"按频率切"的工具，叫 FFT（快速傅里叶变换，英文 Fast Fourier
-Transform 的缩写）——它能把一段波形，拆成"每个频率各有多少能量"的一张表。
+To "dig" breathing rate and heart rate out, the trick is: **split the signal by frequency**.
+Breathing is in the low band, heartbeat in the high band — find each in its own band
+without interfering. This "split by frequency" tool is called FFT (Fast Fourier
+Transform) — it turns a waveform into a table of "how much energy each frequency has".
 
-【怎么用？】
+Usage:
 
     import bcg_monitor as bcg
-    t, signal = bcg.simulate_bcg()               # 合成一段床垫信号
-    resp = bcg.estimate_breathing_rate(signal)   # 呼吸率（次/分）
-    hr   = bcg.estimate_heart_rate(signal)       # 心率（次/分）
+    t, signal = bcg.simulate_bcg()               # synthesize a mattress signal segment
+    resp = bcg.estimate_breathing_rate(signal)   # breathing rate (breaths/min)
+    hr   = bcg.estimate_heart_rate(signal)       # heart rate (beats/min)
 
 =============================================================================
 """
@@ -64,61 +70,62 @@ import numpy as np
 
 
 # ============================================================================
-# 监测参数（业务参数，想调只改这里）
+# Monitoring parameters (business parameters; to tune, change only here)
 # ============================================================================
 
-FS = 50        # 采样率：每秒采 50 个点。真实 BCG 系统常用 50~1000 Hz。
-               # 采样率越高越精细，但计算量越大；50 对演示和测试都够用。
+FS = 50        # sampling rate: 50 points per second. Real BCG systems commonly use 50~1000 Hz.
+               # Higher is finer but more compute; 50 is enough for demo and tests.
 
-# 呼吸和心跳各占一个"频段"（单位 Hz，赫兹 = 每秒几次）。
-# 频段范围要罩住所有正常情况，又不能让两个频段重叠打架：
-RESP_LOW = 0.1    # 呼吸频段下限：0.1 Hz = 6 次/分（慢呼吸）
-RESP_HIGH = 0.6   # 呼吸频段上限：0.6 Hz = 36 次/分（快呼吸、婴儿）
-HR_LOW = 0.7      # 心跳频段下限：0.7 Hz = 42 次/分（运动员静息心率）
-HR_HIGH = 3.0     # 心跳频段上限：3.0 Hz = 180 次/分（婴儿、运动）
+# Breathing and heartbeat each occupy a "band" (in Hz, hertz = cycles per second).
+# The band ranges must cover all normal cases without the two bands overlapping:
+RESP_LOW = 0.1    # breathing band lower bound: 0.1 Hz = 6 breaths/min (slow breathing)
+RESP_HIGH = 0.6   # breathing band upper bound: 0.6 Hz = 36 breaths/min (fast breathing, infant)
+HR_LOW = 0.7      # heartbeat band lower bound: 0.7 Hz = 42 beats/min (athlete resting heart rate)
+HR_HIGH = 3.0     # heartbeat band upper bound: 3.0 Hz = 180 beats/min (infant, exercise)
 
 
 # ============================================================================
-# 一、合成信号：用数学"演"一段床垫压力信号（没有硬件也能开发）
+# 1. Synthesize a signal: mathematically "act out" a mattress pressure signal (develop without hardware)
 # ============================================================================
 
 def simulate_bcg(duration_sec=60.0, fs=FS, resp_rate=15.0, heart_rate=72.0,
                  noise_std=0.05, apnea=None, seed=42):
     """
-    合成一段床垫下的压力信号：静态体压 + 呼吸 + 心跳 + 噪声。
+    Synthesize a mattress pressure signal: static body pressure + breathing + heartbeat + noise.
 
-    真实 BCG 信号就是这几个成分叠在一起。这里用数学把它们"演"出来，
-    作为标准答案，用来开发、验证提取算法（跟标定那一套思路一样：
-    先有标准答案，才能判断算法挖得准不准）。
+    A real BCG signal is exactly these components superimposed. Here we "act them out"
+    mathematically as a ground truth, to develop and validate the extraction algorithm
+    (same idea as the calibration approach: you need a ground truth first before you can
+    judge whether the algorithm digs accurately).
 
-    参数：
-      duration_sec —— 信号时长（秒）
-      fs           —— 采样率（每秒采几个点）
-      resp_rate    —— 真实呼吸率（次/分），这是"标准答案"
-      heart_rate   —— 真实心率（次/分），这也是"标准答案"
-      noise_std    —— 噪声强度（越大越脏）
-      apnea        —— 可选，(start_sec, end_sec)，表示这段"呼吸暂停"
-                     （呼吸幅度降为 0，但心跳还在——呼吸暂停 ≠ 心跳停止）。
-                     默认 None = 全程正常呼吸。
-      seed         —— 随机种子，固定它，每次结果一样，方便对比
+    Parameters:
+      duration_sec — signal duration (seconds)
+      fs           — sampling rate (points per second)
+      resp_rate    — true breathing rate (breaths/min), the "ground truth"
+      heart_rate   — true heart rate (beats/min), also the "ground truth"
+      noise_std    — noise strength (larger = dirtier)
+      apnea        — optional (start_sec, end_sec), marking a "breathing pause" interval
+                     (breathing amplitude drops to 0, but the heartbeat keeps going —
+                     apnea ≠ cardiac arrest). Default None = normal breathing throughout.
+      seed         — random seed; fix it and results are the same every time, for easy comparison
 
-    返回：
-      t      —— 时间轴（秒）
-      signal —— 合成的压力信号（一维数组）
+    Returns:
+      t      — time axis (seconds)
+      signal — the synthesized pressure signal (one-dimensional array)
     """
     rng = np.random.default_rng(seed)
     n = int(duration_sec * fs)
     t = np.arange(n) / fs
 
-    resp_freq = resp_rate / 60.0   # 呼吸：次/分 → Hz（每秒几次）
-    hr_freq = heart_rate / 60.0    # 心跳：次/分 → Hz
+    resp_freq = resp_rate / 60.0   # breathing: breaths/min → Hz (cycles per second)
+    hr_freq = heart_rate / 60.0    # heartbeat: beats/min → Hz
 
-    baseline = 100.0               # 静态体压（直流），代表人的重量
-    # 呼吸幅度大（胸廓起伏明显），心跳幅度小（约为呼吸的 1/10）
+    baseline = 100.0               # static body pressure (DC), representing the person's weight
+    # breathing has a large amplitude (obvious chest rise), heartbeat a small one (about 1/10 of breathing)
     respiration = 5.0 * np.sin(2 * np.pi * resp_freq * t)
     heartbeat = 0.5 * np.sin(2 * np.pi * hr_freq * t)
 
-    # 呼吸暂停：把 [start, end) 这段时间的呼吸幅度压成 0
+    # apnea: squeeze the breathing amplitude to 0 over [start, end)
     if apnea is not None:
         start, end = apnea
         mask = (t >= start) & (t < end)
@@ -131,43 +138,44 @@ def simulate_bcg(duration_sec=60.0, fs=FS, resp_rate=15.0, heart_rate=72.0,
 
 
 # ============================================================================
-# 二、内部工具：FFT 找"某个频段里能量最强的频率"
+# 2. Internal utility: use FFT to find "the strongest frequency in a band"
 # ============================================================================
 
 def _dominant_freq(signal, fs, low, high):
     """
-    用 FFT（快速傅里叶变换）把信号拆成"每个频率各有多少能量"，
-    然后在 [low, high] 这个频段里，找出能量最强的那个频率。
+    Use FFT (Fast Fourier Transform) to split the signal into "how much energy each
+    frequency has", then find the strongest frequency within the [low, high] band.
 
-    这个频率 × 60，就是这个频段对应的"每分钟多少次"。
-    比如心跳频段里最强的是 1.2 Hz，那心率就是 1.2 × 60 = 72 次/分。
+    This frequency × 60 is the "count per minute" for that band.
+    E.g. if the strongest frequency in the heartbeat band is 1.2 Hz, the heart rate
+    is 1.2 × 60 = 72 beats/min.
 
-    参数：
-      signal —— 一维信号
-      fs     —— 采样率
-      low, high —— 目标频段（Hz）
+    Parameters:
+      signal — one-dimensional signal
+      fs     — sampling rate
+      low, high — target band (Hz)
 
-    返回：
-      主峰频率（Hz）。如果频段里一个点都没有，返回 0。
+    Returns:
+      the dominant frequency (Hz). Returns 0 if the band has no points at all.
     """
     n = len(signal)
-    spectrum = np.abs(np.fft.rfft(signal))          # 每个频率的能量
-    freqs = np.fft.rfftfreq(n, d=1.0 / fs)          # 每个频率是多少 Hz
+    spectrum = np.abs(np.fft.rfft(signal))          # energy at each frequency
+    freqs = np.fft.rfftfreq(n, d=1.0 / fs)          # each frequency in Hz
     mask = (freqs >= low) & (freqs <= high)
     if not mask.any():
         return 0.0
     band_spectrum = spectrum[mask]
     band_freqs = freqs[mask]
-    # 频段里一点能量都没有（比如全零信号）→ 没信号，报 0，
-    # 而不是让 argmax 无脑返回频段里第一个点
+    # The band has no energy at all (e.g. an all-zero signal) → no signal, report 0,
+    # rather than letting argmax blindly return the first point in the band
     if band_spectrum.max() <= 0:
         return 0.0
-    # 频段内能量最大的那个频率，就是我们要找的"主峰"
+    # the frequency with the most energy in the band is the "dominant peak" we want
     return float(band_freqs[np.argmax(band_spectrum)])
 
 
 def _band_energy(signal, fs, low, high):
-    """算 [low, high] 频段的总能量 = 该频段所有 FFT 幅度之和。"""
+    """Compute the total energy of the [low, high] band = the sum of all FFT magnitudes in that band."""
     n = len(signal)
     spectrum = np.abs(np.fft.rfft(signal))
     freqs = np.fft.rfftfreq(n, d=1.0 / fs)
@@ -176,34 +184,34 @@ def _band_energy(signal, fs, low, high):
 
 
 def dominant_freq(signal, fs, low, high):
-    """公开版「找频段主峰」，供其他模块（如睡眠分期）复用。
-    内部就是 _dominant_freq，只是为了给外模块一个不带下划线的正式入口。"""
+    """Public "find band dominant peak", for other modules (e.g. sleep staging) to reuse.
+    Internally it's _dominant_freq; it's just a public entry point without the underscore."""
     return _dominant_freq(signal, fs, low, high)
 
 
 def band_energy(signal, fs, low, high):
-    """公开版「算频段能量」，供其他模块（如睡眠分期）复用。
-    内部就是 _band_energy，理由同上。"""
+    """Public "compute band energy", for other modules (e.g. sleep staging) to reuse.
+    Internally it's _band_energy; same reason as above."""
     return _band_energy(signal, fs, low, high)
 
 
 # ============================================================================
-# 三、提取呼吸率、心率：各在各自频段里找主峰
+# 3. Extract breathing rate and heart rate: each finds its dominant peak in its own band
 # ============================================================================
 
 def estimate_breathing_rate(signal, fs=FS):
     """
-    估算呼吸率（次/分）。
+    Estimate the breathing rate (breaths/min).
 
-    做法：呼吸是低频震动，所以在「呼吸频段」（0.1~0.6 Hz）里找能量
-    最强的频率，再 ×60 换成"每分钟多少次"。
+    How: breathing is low-frequency vibration, so find the strongest frequency in the
+    "breathing band" (0.1~0.6 Hz), then ×60 to convert to "counts per minute".
 
-    参数：
-      signal —— 床垫压力信号
-      fs     —— 采样率
+    Parameters:
+      signal — mattress pressure signal
+      fs     — sampling rate
 
-    返回：
-      呼吸率（次/分，浮点数）
+    Returns:
+      breathing rate (breaths/min, float)
     """
     peak_hz = _dominant_freq(signal, fs, RESP_LOW, RESP_HIGH)
     return peak_hz * 60.0
@@ -211,50 +219,52 @@ def estimate_breathing_rate(signal, fs=FS):
 
 def estimate_heart_rate(signal, fs=FS):
     """
-    估算心率（次/分）。
+    Estimate the heart rate (beats/min).
 
-    做法：心跳是高频微小震动，所以在「心跳频段」（0.7~3.0 Hz）里找
-    能量最强的频率，再 ×60 换成"每分钟多少次"。
+    How: heartbeat is high-frequency micro-vibration, so find the strongest frequency
+    in the "heartbeat band" (0.7~3.0 Hz), then ×60 to convert to "counts per minute".
 
-    参数：
-      signal —— 床垫压力信号
-      fs     —— 采样率
+    Parameters:
+      signal — mattress pressure signal
+      fs     — sampling rate
 
-    返回：
-      心率（次/分，浮点数）
+    Returns:
+      heart rate (beats/min, float)
     """
     peak_hz = _dominant_freq(signal, fs, HR_LOW, HR_HIGH)
     return peak_hz * 60.0
 
 
 # ============================================================================
-# 四、呼吸暂停检测：某段时间胸廓不动了
+# 4. Apnea detection: the chest stopped moving for a stretch
 # ============================================================================
 
 def detect_apnea(signal, fs=FS, window_sec=10.0, ratio=0.25):
     """
-    检测呼吸暂停。
+    Detect breathing pauses (apnea).
 
-    原理：呼吸正常时，呼吸频段（0.1~0.6 Hz）里能量充足；呼吸一暂停，
-    胸廓不动了，这个频段的能量就塌到接近 0。
+    Principle: during normal breathing the breathing band (0.1~0.6 Hz) has ample
+    energy; when breathing pauses, the chest stops moving and that band's energy
+    collapses to near 0.
 
-    做法（滑窗）：
-      1. 把整段信号按 window_sec 切成一段段（不重叠）；
-      2. 每段算「呼吸频段的能量」；
-      3. 能量 < 全局最大能量的 ratio 倍 → 判为「疑似呼吸暂停」。
+    How (sliding window):
+      1. slice the whole signal into non-overlapping windows of window_sec;
+      2. compute each window's "breathing-band energy";
+      3. if energy < ratio × global max energy → flag "suspected apnea".
 
-    为什么用比例 ratio 不用固定数？因为不同人呼吸幅度差别很大，
-    胖瘦、睡姿都会变。用"相对全局最大值"的比例，天然自适应。
+    Why a ratio instead of a fixed number? Because different people have very
+    different breathing amplitudes; body size and sleep posture both change it.
+    Using a ratio of the "relative global max" adapts naturally.
 
-    参数：
-      signal     —— 床垫压力信号
-      fs         —— 采样率
-      window_sec —— 每个窗口多长（秒）。太短噪声大，太长不灵敏，10 秒较合适
-      ratio      —— 能量低于全局峰值的多少倍算暂停（默认 0.25）
+    Parameters:
+      signal     — mattress pressure signal
+      fs         — sampling rate
+      window_sec — how long each window is (seconds). Too short = noisy, too long = insensitive; 10 s is reasonable
+      ratio      — energy below this fraction of the global peak counts as a pause (default 0.25)
 
-    返回：
-      apnea_flags —— list[bool]，每个窗口是否疑似暂停
-      window_t    —— list[float]，每个窗口的起始时间（秒）
+    Returns:
+      apnea_flags — list[bool], whether each window is a suspected pause
+      window_t    — list[float], each window's start time (seconds)
     """
     win = int(window_sec * fs)
     n_windows = len(signal) // win

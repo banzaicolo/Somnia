@@ -2,44 +2,45 @@
 # -*- coding: utf-8 -*-
 """
 =============================================================================
-迟滞补偿演示 —— 把「传感器记仇」这条毛病，自动修回来
+Hysteresis compensation demo — automatically fix the "sensor holding a grudge" fault
 =============================================================================
 
-【这个脚本演示什么？】
+[What does this script demonstrate?]
 
-迟滞（hysteresis）是传感器最"鸡贼"的一种毛病：同一个压力，你往上压
-（加压）时它读得偏高，往回放（减压）时它读得偏低。画出来是一个圈，
-不是一条线（你在《压力模拟器》的 hysteresis_curve.png 里见过那个圈）。
+Hysteresis is the most "sneaky" sensor fault: at the same pressure, pressing up
+(loading) reads high, releasing (unloading) reads low. Plotted it's a loop, not a
+line (you saw that loop in the Pressure Simulator's hysteresis_curve.png).
 
-修它的难点不在公式（公式很简单），而在——**程序得先知道"现在是在加压
-还是减压"**，而传感器不会告诉你方向。
+The hard part of fixing it isn't the formula (it's simple) — it's that **the program
+must first know "am I loading or unloading right now"**, and the sensor won't tell
+you the direction.
 
-所以这个脚本串起一个完整闭环，演示"自动判方向 + 补偿"：
+So this script wires up a full closed loop demonstrating "auto-detect direction + compensate":
 
-    ① 造一张理想体压图（人躺平的样子 = 标准答案）
-    ② 模拟"人慢慢躺下（加压）→ 慢慢起身（减压）"，共几十帧，
-       每一帧按当时方向叠上迟滞，得到"脏读数"
-    ③ 程序自己拿相邻帧比较、判断方向，再套补偿公式
-    ④ 对比：补偿前差多少、补偿后差多少
+    ① build an ideal body-pressure map (what a lying person looks like = ground truth)
+    ② simulate "person slowly lying down (loading) -> slowly getting up (unloading)", dozens of frames,
+       each frame adds hysteresis according to the direction at that moment, producing the "dirty readings"
+    ③ the program compares adjacent frames, judges the direction, then applies the compensation formula
+    ④ compare: how far off before vs after compensation
 
-结论（和别的演示一样）不是写死的，是拿数字算出来、用 verdict 模块
-动态生成的。
+The conclusion (like the other demos) isn't hard-coded; it's computed from the
+numbers and generated dynamically via the verdict module.
 
-【怎么运行】
+[How to run]
 
     python3 src/hysteresis_demo.py
 
-跑完会在「outputs」里生成 hysteresis_compensation.png。
+After running it generates hysteresis_compensation.png in "outputs".
 =============================================================================
 """
 
 import os
 import numpy as np
 import matplotlib
-matplotlib.use("Agg")   # 不弹窗口，直接存图
+matplotlib.use("Agg")   # don't pop up a window; save figures directly
 import matplotlib.pyplot as plt
 
-# 中文显示
+# Chinese font support
 plt.rcParams["font.sans-serif"] = ["PingFang SC", "Arial Unicode MS", "Heiti SC"]
 plt.rcParams["axes.unicode_minus"] = False
 
@@ -55,83 +56,83 @@ from verdict import describe_improvement
 
 def main():
     print("=" * 64)
-    print(" 迟滞补偿演示：自动判断加压/减压方向，把「记仇」修回来")
+    print(" Hysteresis compensation demo: auto-detect loading/unloading direction and fix the 'grudge'")
     print("=" * 64)
     print()
 
-    # ---- ① 标准答案：人躺平的理想体压图 ----
+    # ---- ① ground truth: ideal body-pressure map of a lying person ----
     ideal = make_ideal_pressure(GRID_W, GRID_H, BODY_PARTS)
-    print(f"[1/5] 理想体压图（标准答案）：{GRID_W}×{GRID_H}，峰值 {ideal.max():.1f}")
+    print(f"[1/5] ideal body-pressure map (ground truth): {GRID_W}×{GRID_H}, peak {ideal.max():.1f}")
 
-    # ---- ② 模拟"躺下→起身"，叠迟滞 ----
+    # ---- ② simulate "lie down -> get up", adding hysteresis ----
     n_steps = 60
     true_frames, raw_frames, weights = simulate_load_unload(
         ideal, n_steps=n_steps, h=HYSTERESIS, noise=0.0)
-    print(f"[2/5] 模拟躺下→起身共 {len(weights)} 帧（前加压、后减压），每帧叠迟滞 {HYSTERESIS}")
+    print(f"[2/5] simulated lie-down->get-up over {len(weights)} frames (loading first, unloading after), each frame adds hysteresis {HYSTERESIS}")
 
-    # ---- ③ 自动判方向 + 补偿 ----
+    # ---- ③ auto-detect direction + compensate ----
     corrected = cal.correct_hysteresis_sequence(raw_frames, HYSTERESIS, deadband=0.0)
-    print("[3/5] 已自动判断每帧方向，并完成迟滞补偿")
+    print("[3/5] auto-detected each frame's direction and finished hysteresis compensation")
 
-    # ---- ④ 算误差：补偿前 vs 补偿后 ----
-    # 全程平均绝对误差：所有帧、所有点，"跟标准答案差多少"的平均
+    # ---- ④ compute error: before vs after compensation ----
+    # mean absolute error over the whole run: all frames, all points, averaged "distance from ground truth"
     err_before = float(np.abs(raw_frames - true_frames).mean())
     err_after = float(np.abs(corrected - true_frames).mean())
-    print(f"[4/5] 全程平均误差：补偿前 {err_before:.2f} → 补偿后 {err_after:.2f}")
+    print(f"[4/5] mean error over the whole run: before {err_before:.2f} -> after {err_after:.2f}")
 
-    # ---- ⑤ 动态结论（不是写死，是拿数字算的） ----
+    # ---- ⑤ dynamic conclusion (not hard-coded; computed from the numbers) ----
     improve = cal.improvement(err_before, err_after)
     print()
-    print(" 本次演示结论（程序根据上面的数字自动生成，非写死）：")
-    print(f"   迟滞造成的平均误差 {err_before:.2f}，补偿后降到 {err_after:.2f}，")
-    print(f"   误差缩小 {improve:.1f}% → {describe_improvement(improve)}。")
+    print(" Conclusion of this demo (auto-generated from the numbers above, not hard-coded):")
+    print(f"   mean error caused by hysteresis {err_before:.2f}, down to {err_after:.2f} after compensation,")
+    print(f"   error shrank {improve:.1f}% -> {describe_improvement(improve)}.")
     print()
 
-    # ---- 画图 ----
+    # ---- plot ----
     path = plot_result(true_frames, raw_frames, corrected, weights, ideal)
-    print(f" 产出图：{path}")
+    print(f" Output figure: {path}")
     print()
-    print(" ✅ 完成。打开那张图：蓝线（补偿后）会几乎贴住灰虚线（真实），")
-    print("    红线（脏读数）则明显偏离——这就是迟滞被修回来的样子。")
+    print(" ✅ Done. Open that figure: the blue line (compensated) will nearly hug the gray dashed line (truth),")
+    print("    while the red line (dirty reading) clearly deviates — that's what fixed hysteresis looks like.")
 
 
 def plot_result(true_frames, raw_frames, corrected, weights, ideal):
-    """画两张图：左=峰值点的压力随时间；右=每帧平均误差（补偿前后）。"""
+    """Draw two figures: left = pressure over time at the peak point; right = per-frame mean error (before/after compensation)."""
     os.makedirs(OUT_DIR, exist_ok=True)
 
-    # 找峰值点（屁股最重的地方），看它的"压力-时间"曲线最直观
+    # find the peak point (where the hips are heaviest); its "pressure-time" curve is the most intuitive
     peak_idx = np.unravel_index(np.argmax(ideal), ideal.shape)
     t = np.arange(len(weights))
 
     fig, axes = plt.subplots(1, 2, figsize=(13, 5))
 
-    # ---- 左图：峰值点随时间 ----
+    # ---- left: peak point over time ----
     ax = axes[0]
     ax.plot(t, true_frames[:, peak_idx[0], peak_idx[1]], "--",
-            color="gray", linewidth=2, label="真实压力（标准答案）")
+            color="gray", linewidth=2, label="true pressure (ground truth)")
     ax.plot(t, raw_frames[:, peak_idx[0], peak_idx[1]], "-",
-            color="tab:red", linewidth=2, label="传感器读数（含迟滞）")
+            color="tab:red", linewidth=2, label="sensor reading (with hysteresis)")
     ax.plot(t, corrected[:, peak_idx[0], peak_idx[1]], "-",
-            color="tab:blue", linewidth=2, label="补偿后（自动判方向）")
-    ax.set_xlabel("帧（时间 → 先躺下、后起身）")
-    ax.set_ylabel("压力")
-    ax.set_title("峰值点：迟滞让读数偏移，补偿拉回真实")
+            color="tab:blue", linewidth=2, label="compensated (auto-detected direction)")
+    ax.set_xlabel("frame (time -> lie down first, then get up)")
+    ax.set_ylabel("pressure")
+    ax.set_title("Peak point: hysteresis shifts the reading, compensation pulls it back to truth")
     ax.legend(fontsize=9)
     ax.grid(True, alpha=0.3)
 
-    # ---- 右图：每帧平均误差 ----
+    # ---- right: per-frame mean error ----
     ax = axes[1]
     err_before = np.abs(raw_frames - true_frames).reshape(len(weights), -1).mean(axis=1)
     err_after = np.abs(corrected - true_frames).reshape(len(weights), -1).mean(axis=1)
-    ax.plot(t, err_before, "-", color="tab:red", linewidth=2, label="补偿前误差")
-    ax.plot(t, err_after, "-", color="tab:blue", linewidth=2, label="补偿后误差")
-    ax.set_xlabel("帧（时间 → 先躺下、后起身）")
-    ax.set_ylabel("平均绝对误差")
-    ax.set_title("每帧误差：补偿后几乎归零")
+    ax.plot(t, err_before, "-", color="tab:red", linewidth=2, label="error before compensation")
+    ax.plot(t, err_after, "-", color="tab:blue", linewidth=2, label="error after compensation")
+    ax.set_xlabel("frame (time -> lie down first, then get up)")
+    ax.set_ylabel("mean absolute error")
+    ax.set_title("Per-frame error: nearly zero after compensation")
     ax.legend(fontsize=9)
     ax.grid(True, alpha=0.3)
 
-    fig.suptitle("迟滞自动补偿：加压/减压方向由程序自己判断", fontsize=14)
+    fig.suptitle("Hysteresis auto-compensation: the program judges the loading/unloading direction itself", fontsize=14)
     plt.tight_layout()
     path = os.path.join(OUT_DIR, FILE_HYSTERESIS_COMP)
     plt.savefig(path, dpi=120, bbox_inches="tight")

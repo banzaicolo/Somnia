@@ -2,64 +2,67 @@
 # -*- coding: utf-8 -*-
 """
 =============================================================================
-模拟压力传感器数据生成器（教学演示版，可直接运行）
+Simulated pressure sensor data generator (teaching demo, runnable directly)
 =============================================================================
 
-【这东西是干嘛的？】
+[What is this thing?]
 
-你那张 AI 医疗床的核心，是床垫下的一排柔性压力传感器。
-你现在没有真硬件。但"没硬件"挡不住你开发算法——因为传感器这个
-东西，它输出的数据是【有物理规律】的。人躺上去，压力大的地方
-（肩、屁股）读数就大；这些规律我们完全可以用数学"演"出来。
+The core of your AI medical bed is the row of flexible pressure sensors under
+the mattress. You don't have real hardware yet, but "no hardware" doesn't stop
+you from developing the algorithm — because a sensor's output follows
+[physical laws]. When a person lies down, the places under heavy pressure
+(shoulders, hips) read higher; we can "act out" these laws entirely with math.
 
-所以这个脚本干一件事：
+So this script does one thing:
 
-    用数学"演"出一个"人躺在床垫上"的体压图，
-    再往里"加"各种真传感器会有的毛病，
-    让你看清：理想的世界 vs 传感器真实读到的世界，差多少。
+    Use math to "act out" a body-pressure map of "a person lying on the
+    mattress", then "add in" all the faults a real sensor has, so you can see
+    the difference between the ideal world and the world a sensor actually reads.
 
-【为什么这一步特别重要？】
+[Why is this step so important?]
 
-我前面跟你说过：这个项目最容易翻车的地方，不是 AI 模型，
-是【传感器标定】——传感器会骗人。这个脚本就是让你【亲眼看到】
-它是怎么骗人的。看清楚敌人长什么样，你才写得对标定算法。
+I told you before: the easiest place for this project to fail is not the AI
+model — it's [sensor calibration], because sensors lie. This script lets you
+[see with your own eyes] how they lie. Only when you see clearly what the enemy
+looks like can you write the right calibration algorithm.
 
-【这个文件会产出什么？】
+[What does this file produce?]
 
-跑完之后，会在「outputs」文件夹里生成：
+After running, it generates these in the "outputs" folder:
 
-  1. imperfections.png     —— 4 张对比图，看每个毛病往里加了什么
-  2. hysteresis_curve.png  —— 一个"加载-卸载"循环，看传感器"记仇"
-  3. ideal_pressure.csv    —— 人真实压上去的样子（这是"标准答案"）
-  4. sensor_readings.csv   —— 传感器实际读到的（这是"脏数据"）
+  1. imperfections.png    -- 4 comparison plots, showing what each fault adds
+  2. hysteresis_curve.png -- a "load-unload" loop, showing the sensor "holding a grudge"
+  3. ideal_pressure.csv   -- what a person actually presses (the "ground truth")
+  4. sensor_readings.csv  -- what the sensor actually reads (the "dirty data")
 
-【怎么运行】
+[How to run]
 
-Mac 打开"终端"，粘进去回车：
+Open "Terminal" on Mac, paste and press Enter:
 
     python3 src/pressure_simulator.py
 
-（需要 numpy 和 matplotlib，下面"依赖"那节会告诉你装没装、怎么装）
+(requires numpy and matplotlib; the "dependencies" section below tells you whether they're installed and how to install them)
 =============================================================================
 """
 
 import os
 import numpy as np
 import matplotlib
-# 不弹窗口，直接把图存成文件（在 Mac 终端里跑，这一行很重要）
+# Don't pop up a window; save figures directly to files (important when running in the Mac terminal)
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-# 让中文能正常显示（Mac 上的中文字体）
+# Chinese font support (font available on Mac)
 plt.rcParams["font.sans-serif"] = ["PingFang SC", "Arial Unicode MS", "Heiti SC"]
-plt.rcParams["axes.unicode_minus"] = False   # 让负号正常显示
+plt.rcParams["axes.unicode_minus"] = False   # make the minus sign display correctly
 
 
 # ============================================================================
-# 第一部分：参数区（所有"旋钮"统一放在 src/sensor_config.py 里）
+# Part 1: parameter section (all "knobs" live in src/sensor_config.py)
 # ============================================================================
-# 想改网格尺寸、身体部位、传感器毛病强度，去改 sensor_config.py 那一个文件。
-# 这里 import 进来，本脚本和其他脚本就拿到同一套参数，不会各改各的。
+# To change grid size, body parts, or sensor fault strength, edit the single file
+# sensor_config.py. Importing it here means this script and others share the same
+# parameters instead of each editing its own copy.
 from sensor_config import (
     GRID_W, GRID_H, BODY_PARTS,
     SENS_GAIN_STD, TEMP_DRIFT, ZERO_DRIFT_MAX, NOISE_STD, CROSSTALK, HYSTERESIS,
@@ -70,88 +73,89 @@ from sensor_config import (
 
 
 # ============================================================================
-# 第二部分：核心函数
+# Part 2: core functions
 # ============================================================================
-# （make_ideal_pressure 已移到 sensor_config.py，见上面的 import）
+# (make_ideal_pressure moved to sensor_config.py; see the import above)
 
 
 def add_imperfections(ideal):
     """
-    把"理想体压图"加工成"传感器真实读到的图"，一层一层加毛病。
+    Turn the "ideal body-pressure map" into "what a sensor actually reads", by adding faults layer by layer.
 
-    这个函数会返回一个字典，里面同时有"每一步加完之后长什么样"，
-    这样我们就能画对比图，看清每层毛病各自干了什么。
+    This function returns a dict that also holds "what each step looks like after
+    adding", so we can draw comparison plots and see what each fault layer did.
 
-    参数：ideal —— 理想体压图
-    返回：字典，key 是步骤名，value 是当时的图
+    Args: ideal -- the ideal body-pressure map
+    Returns: a dict whose keys are step names and values are the maps at each step
     """
-    steps = {"理想体压": ideal}   # 第 0 步：标准答案
+    steps = {"Ideal pressure": ideal}   # step 0: ground truth
 
-    # ---- 毛病① 批次不一致 ----
-    # 每个点乘以一个"灵敏度系数"，这个系数围绕 1 随机浮动。
-    # 用固定随机种子，保证每次跑出来结果一样，方便你对比。
+    # ---- fault ① batch mismatch ----
+    # Multiply each point by a "sensitivity coefficient" that randomly floats around 1.
+    # A fixed random seed keeps every run identical so you can compare.
     rng = np.random.default_rng(SEED)
     sensitivity = rng.normal(1.0, SENS_GAIN_STD, size=ideal.shape)
     after_gain = ideal * sensitivity
-    steps["+批次不一致(灵敏度±15%)"] = after_gain
+    steps["+ batch mismatch (sensitivity ±15%)"] = after_gain
 
-    # ---- 毛病② 温漂 ----
-    # 整体抬一个基线。真实世界是"温度高抬多少、低抬多少"，
-    # 这里简化为：整体抬 TEMP_DRIFT，再叠加一点点空间上的不均匀。
+    # ---- fault ② temp drift ----
+    # Lift the whole baseline. In the real world "higher temperature lifts more, lower lifts less";
+    # here we simplify: lift everything by TEMP_DRIFT, plus a little spatial non-uniformity.
     temp_map = TEMP_DRIFT * rng.uniform(0.7, 1.3, size=ideal.shape)
     after_temp = after_gain + temp_map
-    steps["+温漂(基线整体抬高)"] = after_temp
+    steps["+ temp drift (baseline lifted)"] = after_temp
 
-    # ---- 毛病③ 零点漂移 ----
-    # 每个点随机加一个 0~ZERO_DRIFT_MAX 的"长期偏移"。
-    # 它跟温度无关，是"老化"造成的，且每个点不一样。
+    # ---- fault ③ zero drift ----
+    # Add a random 0~ZERO_DRIFT_MAX "long-term offset" to each point.
+    # It's temperature-independent, caused by "aging", and differs per point.
     zero_map = rng.uniform(0, ZERO_DRIFT_MAX, size=ideal.shape)
     after_zero = after_temp + zero_map
-    steps["+零点漂移(每个点随机偏)"] = after_zero
+    steps["+ zero drift (per-point random offset)"] = after_zero
 
-    # ---- 毛病④ 串扰 ----
-    # 每个点把一部分信号"漏"给上下左右的邻居。
-    # 做法：每个点的新读数 = (1-c) × 自己  +  c × 上下左右四个邻居的平均。
-    # c 就是 CROSSTALK，越大漏得越狠。
+    # ---- fault ④ crosstalk ----
+    # Each point "leaks" some signal to its four neighbors (up/down/left/right).
+    # Recipe: new reading = (1-c) × self  +  c × average of the four neighbors.
+    # c is CROSSTALK; the larger it is, the worse the leakage.
     if CROSSTALK > 0:
         c = CROSSTALK
-        # np.pad 给图四周"垫一圈边"，这样边缘的点也能取到邻居
+        # np.pad "pads a ring" around the map so edge points can also read neighbors
         padded = np.pad(after_zero, 1, mode="edge")
-        # 上下左右四个邻居的平均值
+        # average of the four neighbors (up/down/left/right)
         neighbors = (padded[:-2, 1:-1] + padded[2:, 1:-1] +
                      padded[1:-1, :-2] + padded[1:-1, 2:]) / 4.0
         after_cross = (1 - c) * after_zero + c * neighbors
     else:
         after_cross = after_zero
-    steps["+串扰(邻点漏电10%)"] = after_cross
+    steps["+ crosstalk (neighbor leakage 10%)"] = after_cross
 
-    # ---- 毛病⑤ 噪声 ----
-    # 最后叠一层随机噪声。
+    # ---- fault ⑤ noise ----
+    # Finally add a layer of random noise.
     after_noise = after_cross + rng.normal(0, NOISE_STD, size=ideal.shape)
-    steps["最终读数(+噪声)"] = after_noise
+    steps["final reading (+ noise)"] = after_noise
 
     return steps
 
 
 def hysteresis_curve():
     """
-    生成一条"迟滞回线"（图2 用）。
+    Generate a "hysteresis loop" (for figure 2).
 
-    迟滞的意思：你把传感器从 0 压到 100，再从 100 放回 0，
-    这"加压"和"减压"两条路径的读数对不上，画出来是一个圈，
-    而不是一条线。圈越胖，说明传感器越"记仇"。
+    Hysteresis means: if you press the sensor from 0 to 100 then release from 100
+    back to 0, the "loading" and "unloading" paths don't match — plotting them
+    gives a loop, not a single line. The fatter the loop, the more the sensor
+    "holds a grudge".
 
-    这里用简化模型模拟（宽度恒等于 HYSTERESIS）：
-      - 加压时，读数 = 真实压力 + HYSTERESIS/2
-      - 减压时，读数 = 真实压力 - HYSTERESIS/2
-    真实迟滞比这复杂得多，但这条圈够用来开发标定算法了。
+    Here we use a simplified model (constant width equal to HYSTERESIS):
+      - loading:   reading = true pressure + HYSTERESIS/2
+      - unloading: reading = true pressure - HYSTERESIS/2
+    Real hysteresis is far more complex, but this loop is enough to develop the calibration algorithm.
     """
-    p = np.linspace(0, 100, 50)   # 真实压力从 0 到 100，取 50 个点
+    p = np.linspace(0, 100, 50)   # true pressure from 0 to 100, 50 points
 
-    # 加压（从 0 到 100）：读数偏高半个宽度
+    # loading (0 to 100): reads high by half the width
     load = p + HYSTERESIS / 2.0
 
-    # 减压（从 100 到 0）：读数偏低半个宽度
+    # unloading (100 to 0): reads low by half the width
     unload = p - HYSTERESIS / 2.0
 
     return p, load, unload
@@ -159,38 +163,39 @@ def hysteresis_curve():
 
 def simulate_load_unload(ideal, n_steps=60, h=HYSTERESIS, noise=0.0, seed=None):
     """
-    模拟「人慢慢躺下，再慢慢起身」的完整过程，并叠加迟滞。
+    Simulate the full process of "a person slowly lying down, then slowly getting up", with hysteresis on top.
 
-    为什么要单独写这个？因为迟滞是「动态」的——它跟"压力在升还是降"有关，
-    没法加到一张静止的压力图上（add_imperfections 处理的是单张静态图）。
-    所以要模拟一个过程：
+    Why a separate function? Because hysteresis is "dynamic" — it depends on whether
+    the pressure is rising or falling, so it can't be added to a single static
+    pressure map (add_imperfections handles a single static map). So we simulate a
+    process:
 
-        躺下（加压：压力从 0 升到最大）→ 起身（减压：压力从最大降到 0）
+        lie down (loading: pressure rises from 0 to max) -> get up (unloading: pressure falls from max to 0)
 
-        每一帧都按"当时是加压还是减压"来加迟滞偏移：
+        Each frame adds the hysteresis offset according to "loading or unloading right now":
 
-        加压段：读数 = p + h/2    （偏高）
-        减压段：读数 = p - h/2    （偏低）
+        loading segment:   reading = p + h/2    (high)
+        unloading segment: reading = p - h/2    (low)
 
-    参数：
-      ideal    —— 理想体压图（人完全躺平时的标准答案），(H, W)
-      n_steps  —— 总帧数（加压段和减压段各约一半）
-      h        —— 迟滞宽度（跟 HYSTERESIS 同一个数）
-      noise    —— 每帧叠加的随机噪声（默认 0，先看纯粹的迟滞效果）
-      seed     —— 随机种子，None 则用 sensor_config 的 SEED
+    Args:
+      ideal    -- ideal body-pressure map (ground truth with the person fully lying down), (H, W)
+      n_steps  -- total frame count (loading and unloading roughly half each)
+      h        -- hysteresis width (same number as HYSTERESIS)
+      noise    -- random noise added per frame (default 0, so you see pure hysteresis first)
+      seed     -- random seed; None uses SEED from sensor_config
 
-    返回：
-      true_frames —— (n_frames, H, W) 每帧的真实压力（标准答案）
-      raw_frames  —— (n_frames, H, W) 每帧传感器读数（含迟滞）
-      weights     —— (n_frames,) 每帧的「压力系数」0~1，先升后降
+    Returns:
+      true_frames -- (n_frames, H, W) true pressure per frame (ground truth)
+      raw_frames  -- (n_frames, H, W) sensor reading per frame (with hysteresis)
+      weights     -- (n_frames,) "pressure coefficient" 0~1 per frame, rising then falling
     """
     rng = np.random.default_rng(seed if seed is not None else SEED)
 
-    # 加压段 0→1，减压段 1→0（顶点只算一次，别让两段都包含 w=1 那一帧）
+    # loading 0→1, unloading 1→0 (count the peak only once; don't include w=1 in both segments)
     n_up = n_steps // 2
     n_down = n_steps - n_up
     up = np.linspace(0.0, 1.0, n_up)
-    down = np.linspace(1.0, 0.0, n_down + 1)[1:]   # 去掉重复的顶点
+    down = np.linspace(1.0, 0.0, n_down + 1)[1:]   # drop the duplicated peak
     weights = np.concatenate([up, down])
 
     true_frames = np.array([ideal * w for w in weights])
@@ -199,9 +204,9 @@ def simulate_load_unload(ideal, n_steps=60, h=HYSTERESIS, noise=0.0, seed=None):
     for i, w in enumerate(weights):
         p = true_frames[i]
         if i < n_up:
-            raw = p + h / 2.0     # 加压：读数偏高
+            raw = p + h / 2.0     # loading: reads high
         else:
-            raw = p - h / 2.0     # 减压：读数偏低
+            raw = p - h / 2.0     # unloading: reads low
         if noise > 0:
             raw = raw + rng.normal(0, noise, size=p.shape)
         raw_frames[i] = raw
@@ -210,20 +215,20 @@ def simulate_load_unload(ideal, n_steps=60, h=HYSTERESIS, noise=0.0, seed=None):
 
 
 # ============================================================================
-# 第三部分：画图 + 保存
+# Part 3: plot + save
 # ============================================================================
 
 
 def plot_and_save(steps):
     """
-    把每一步画出来，拼成一张 4 宫格对比图，存成 png。
+    Plot each step and stitch them into one 4-panel comparison figure, saved as png.
     """
     out_dir = OUT_DIR
     os.makedirs(out_dir, exist_ok=True)
 
-    # 取 4 个关键步骤来展示：理想、批次不一致、温漂+零点、最终
+    # pick 4 key steps to show: ideal, batch mismatch, temp drift + zero drift, final
     keys = list(steps.keys())
-    # 挑 4 个有代表性的（第1个、第2个、第4个、最后1个）
+    # pick 4 representative ones (1st, 2nd, 4th, last)
     chosen = [keys[0], keys[1], keys[3], keys[-1]]
 
     fig, axes = plt.subplots(1, 4, figsize=(18, 5))
@@ -231,11 +236,11 @@ def plot_and_save(steps):
     for ax, k in zip(axes, chosen):
         im = ax.imshow(steps[k], cmap="hot", interpolation="bicubic")
         ax.set_title(k, fontsize=11)
-        ax.set_xticks([])   # 隐藏坐标刻度，图更干净
+        ax.set_xticks([])   # hide tick marks for a cleaner plot
         ax.set_yticks([])
         fig.colorbar(im, ax=ax, fraction=0.046)
 
-    fig.suptitle("理想体压 → 传感器真实读数（颜色越亮 = 压力越大）", fontsize=14)
+    fig.suptitle("Ideal pressure -> raw sensor reading (brighter = higher pressure)", fontsize=14)
     plt.tight_layout()
     path1 = os.path.join(out_dir, FILE_IMPERFECTIONS)
     plt.savefig(path1, dpi=200, bbox_inches="tight")
@@ -245,22 +250,22 @@ def plot_and_save(steps):
 
 
 def plot_hysteresis():
-    """画迟滞回线（图2）。"""
+    """Plot the hysteresis loop (figure 2)."""
     out_dir = OUT_DIR
     os.makedirs(out_dir, exist_ok=True)
 
     p, load, unload = hysteresis_curve()
 
     fig, ax = plt.subplots(figsize=(6, 5))
-    ax.plot(p, load,   color="tab:red",  linewidth=2, label="加压（往上压）")
-    ax.plot(p, unload, color="tab:blue", linewidth=2, label="减压（往回放）")
+    ax.plot(p, load,   color="tab:red",  linewidth=2, label="increasing")
+    ax.plot(p, unload, color="tab:blue", linewidth=2, label="decreasing")
 
-    # 画一条"理想"的 45 度虚线：如果传感器诚实，读数就该等于压力
-    ax.plot([0, 100], [0, 100], "--", color="gray", label="理想（读数=压力）")
+    # ideal 45-degree line: an honest sensor would read exactly the pressure
+    ax.plot([0, 100], [0, 100], "--", color="gray", label="ideal")
 
-    ax.set_xlabel("真实压力")
-    ax.set_ylabel("传感器读数")
-    ax.set_title("迟滞回线：同一个压力，加压和减压读数不一样")
+    ax.set_xlabel("true pressure")
+    ax.set_ylabel("sensor reading")
+    ax.set_title("Hysteresis: same pressure, different reading on the way up vs down")
     ax.legend()
     ax.grid(True, alpha=0.3)
     plt.tight_layout()
@@ -272,7 +277,7 @@ def plot_hysteresis():
 
 
 def save_csv(steps):
-    """把理想体压图和最终读数存成 csv，方便以后喂给算法。"""
+    """Save the ideal map and final reading as CSV, ready to feed to the algorithm later."""
     out_dir = OUT_DIR
     os.makedirs(out_dir, exist_ok=True)
 
@@ -287,48 +292,48 @@ def save_csv(steps):
 
 
 # ============================================================================
-# 第四部分：主程序
+# Part 4: main program
 # ============================================================================
 
 
 def main():
     print("=" * 62)
-    print(" 模拟压力传感器数据生成器")
-    print(" 用途：没真硬件时，先'演'出传感器数据，开发标定算法")
+    print(" Simulated pressure sensor data generator")
+    print(" Purpose: with no real hardware, 'act out' sensor data to develop the calibration algorithm")
     print("=" * 62)
     print()
 
-    # ---- 1. 生成理想体压图 ----
+    # ---- 1. generate the ideal body-pressure map ----
     ideal = make_ideal_pressure(GRID_W, GRID_H, BODY_PARTS)
-    print(f"[1/4] 已生成理想体压图（{GRID_W}×{GRID_H} = {GRID_W*GRID_H} 个感应点）")
+    print(f"[1/4] Generated ideal body-pressure map ({GRID_W}×{GRID_H} = {GRID_W*GRID_H} sensing points)")
 
-    # ---- 2. 一层层加毛病 ----
+    # ---- 2. add faults layer by layer ----
     steps = add_imperfections(ideal)
-    print("[2/4] 已叠加 5 种传感器毛病（批次不一致/温漂/零点漂移/串扰/噪声）")
+    print("[2/4] Added 5 sensor faults (batch mismatch / temp drift / zero drift / crosstalk / noise)")
 
-    # ---- 3. 画图 + 保存 ----
+    # ---- 3. plot + save ----
     path1 = plot_and_save(steps)
     path2 = plot_hysteresis()
     save_csv(steps)
-    print("[3/4] 已生成 2 张图 + 2 个 csv 文件")
+    print("[3/4] Generated 2 figures + 2 CSV files")
 
-    # ---- 4. 打印"标准答案 vs 脏数据"的关键数字，让你有直观感受 ----
+    # ---- 4. print the key "ground truth vs dirty data" numbers for an intuitive feel ----
     final = steps[list(steps.keys())[-1]]
     print()
-    print("[4/4] 关键对比（同一个点，理想 vs 传感器读数）：")
-    print(f"      理想体压峰值  : {ideal.max():>6.1f}")
-    print(f"      传感器读数峰值 : {final.max():>6.1f}")
-    print(f"      差异           : {final.max() - ideal.max():>6.1f}")
+    print("[4/4] Key comparison (same point, ideal vs sensor reading):")
+    print(f"      ideal peak        : {ideal.max():>6.1f}")
+    print(f"      sensor peak       : {final.max():>6.1f}")
+    print(f"      difference        : {final.max() - ideal.max():>6.1f}")
     print()
-    print(" 产出文件都在「outputs」文件夹里：")
+    print(" Output files are all in the 'outputs' folder:")
     print(f"   · {path1}")
     print(f"   · {path2}")
-    print(f"   · {os.path.join(OUT_DIR, FILE_IDEAL_CSV)}（标准答案）")
-    print(f"   · {os.path.join(OUT_DIR, FILE_RAW_CSV)}（脏数据，标定算法的输入）")
+    print(f"   · {os.path.join(OUT_DIR, FILE_IDEAL_CSV)} (ground truth)")
+    print(f"   · {os.path.join(OUT_DIR, FILE_RAW_CSV)} (dirty data, input to the calibration algorithm)")
     print()
-    print(" ✅ 完成。去打开那两张 png 图看看，你就明白传感器为什么会'骗人'了。")
+    print(" ✅ Done. Open those two PNG figures and you'll see why the sensor 'lies'.")
 
 
-# Python 固定套路：直接运行才执行，被 import 不执行
+# standard Python idiom: run only when executed directly, not when imported
 if __name__ == "__main__":
     main()

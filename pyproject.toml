@@ -3,9 +3,9 @@ requires = ["setuptools>=61"]
 build-backend = "setuptools.build_meta"
 
 # ============================================================================
-# Somnia 项目元数据 + 工具配置（现代 Python 项目的"标准封面"）
-# 说明：这个仓库是脚本集合，不需要 pip install 安装使用；
-#       这份文件的作用是 ① 声明项目信息（GitHub 会读）② 配置 pytest
+# Somnia project metadata + tooling config.
+# This repo is a collection of scripts (no `pip install` required); this file
+# 1) declares project metadata (read by GitHub) and 2) configures pytest.
 # ============================================================================
 
 [project]
@@ -31,7 +31,7 @@ dependencies = [
 dev = ["pytest>=7"]
 
 [tool.setuptools]
-# 脚本集合，不含可安装的包
+# Script collection — no installable package.
 packages = []
 
 [tool.pytest.ini_options]

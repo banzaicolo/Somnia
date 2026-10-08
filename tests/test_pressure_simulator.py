@@ -1,55 +1,55 @@
 # -*- coding: utf-8 -*-
 """
-测试「模拟压力传感器」脚本（src/pressure_simulator.py）。
+Tests for the "simulated pressure sensor" script (src/pressure_simulator.py).
 
-重点验证三件事：
-1. 理想体压图是"摆好的人形"，不是随机数（形状对、臀部最重）
-2. 加了 5 种传感器毛病后，读数确实被"污染"了（跟理想不一样、无人区被抬高）
-3. 迟滞现象：同一压力，加压读数 > 减压读数
+Three things are verified:
+1. The ideal body-pressure map is a "placed human shape", not random numbers (correct shape, hips heaviest)
+2. After adding the 5 sensor faults, the readings really are "contaminated" (differ from ideal, unoccupied areas lifted)
+3. Hysteresis: at the same pressure, loading reading > unloading reading
 """
 import numpy as np
 import pressure_simulator as ps
 
 
-def test_理想体压图形状正确():
-    """理想图应该是 8 行 × 12 列（=96 个点），且压力不会出现负数。"""
+def test_ideal_body_shape_correct():
+    """The ideal map should be 8 rows × 12 columns (=96 points), and pressure should never be negative."""
     ideal = ps.make_ideal_pressure(ps.GRID_W, ps.GRID_H, ps.BODY_PARTS)
     assert ideal.shape == (ps.GRID_H, ps.GRID_W)
     assert ideal.min() >= 0
 
 
-def test_臀部是全场最重():
-    """峰值应该出现在臀部附近（第 5~6 行，即索引 4~5）。"""
+def test_hips_are_heaviest():
+    """The peak should appear near the hips (rows 5~6, i.e. indices 4~5)."""
     ideal = ps.make_ideal_pressure(ps.GRID_W, ps.GRID_H, ps.BODY_PARTS)
     row, _col = np.unravel_index(np.argmax(ideal), ideal.shape)
     assert 4 <= row <= 5
 
 
-def test_加了毛病之后读数跟理想不一样():
-    """传感器毛病一定会让最终读数偏离理想图。"""
+def test_faults_make_reading_differ_from_ideal():
+    """Sensor faults will definitely make the final reading deviate from the ideal map."""
     ideal = ps.make_ideal_pressure(ps.GRID_W, ps.GRID_H, ps.BODY_PARTS)
     steps = ps.add_imperfections(ideal)
     final = list(steps.values())[-1]
     assert not np.allclose(final, ideal)
 
 
-def test_没人压的角落被抬高了():
-    """左上角没人压，理想值接近 0，加毛病后应明显大于 0（这就是"骗人"）。"""
+def test_unoccupied_corner_is_lifted():
+    """The top-left corner has nobody pressing; the ideal value is near 0, and after faults it should be clearly above 0 (that's the "lying")."""
     ideal = ps.make_ideal_pressure(ps.GRID_W, ps.GRID_H, ps.BODY_PARTS)
     steps = ps.add_imperfections(ideal)
     final = list(steps.values())[-1]
-    assert ideal[0, 0] < 5          # 角上没人压，理想值很小（只有高斯鼓包尾巴的残留）
-    assert final[0, 0] > ideal[0, 0]  # 加毛病后被抬高了
+    assert ideal[0, 0] < 5          # nobody presses the corner; ideal value is small (only the tail residue of the Gaussian bumps)
+    assert final[0, 0] > ideal[0, 0]  # lifted after faults are added
 
 
-def test_迟滞_加压高于减压():
-    """迟滞回线：同一压力，加压读数严格高于减压读数（宽度恒等于 HYSTERESIS）。"""
+def test_hysteresis_loading_higher_than_unloading():
+    """Hysteresis loop: at the same pressure, the loading reading is strictly higher than the unloading reading (constant width equal to HYSTERESIS)."""
     p, load, unload = ps.hysteresis_curve()
     assert p.shape == load.shape == unload.shape
-    assert (load >= unload).all()            # 加压永远不低于减压
-    assert (load - unload > 0).all()         # 恒有正宽度（恒定偏移模型）
+    assert (load >= unload).all()            # loading never below unloading
+    assert (load - unload > 0).all()         # always a positive width (constant offset model)
 
 
-def test_身体部位正好四个():
-    """人体是头、肩胛、臀、脚后跟四个部位拼出来的。"""
+def test_exactly_four_body_parts():
+    """The body is made of four parts: head, shoulders, hips, heels."""
     assert len(ps.BODY_PARTS) == 4

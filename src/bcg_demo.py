@@ -2,34 +2,35 @@
 # -*- coding: utf-8 -*-
 """
 =============================================================================
-BCG 呼吸/心跳监测演示 —— 演一段床垫信号，看算法怎么把呼吸率和心率挖出来
+BCG breathing/heartbeat monitoring demo — act out a mattress signal and see how the algorithm digs out breathing and heart rate
 =============================================================================
 
-【这个脚本演示什么？】
+What does this script demo?
 
-把 bcg_monitor.py 的呼吸/心跳监测，套在一段合成的床垫信号上，让你看清：
-  1. 床垫信号长啥样（呼吸 + 心跳 + 噪声混在一起）
-  2. 算法怎么"按频率切"把呼吸和心跳分开
-  3. 提取出的呼吸率、心率，跟真实值对不对得上
-  4. 一段"呼吸暂停"，算法能不能发现（婴儿窒息、成人睡眠呼吸暂停都靠它）
+Apply bcg_monitor.py's breathing/heartbeat monitoring to a synthesized mattress
+signal so you can see clearly:
+  1. what a mattress signal looks like (breathing + heartbeat + noise mixed together)
+  2. how the algorithm "splits by frequency" to separate breathing and heartbeat
+  3. whether the extracted breathing/heart rate matches the true values
+  4. whether the algorithm can spot a "breathing pause" (infant suffocation and adult sleep apnea both rely on it)
 
-剧情（60 秒）：
-  第  0~20 秒  正常呼吸（15 次/分）+ 心跳（72 次/分）
-  第 20~40 秒  呼吸暂停（胸廓不动了，但心跳还在）——模拟窒息
-  第 40~60 秒  恢复呼吸
+The script (60 seconds):
+  0~20 s    normal breathing (15 breaths/min) + heartbeat (72 beats/min)
+  20~40 s   breathing pause (chest stopped, but heartbeat keeps going) — simulating suffocation
+  40~60 s   breathing resumes
 
-【怎么运行】
+How to run
 
     python3 src/bcg_demo.py
 
-跑完会在「outputs」里生成 bcg_monitor.png。
+After running, it generates bcg_monitor.png in "outputs".
 =============================================================================
 """
 
 import os
 import numpy as np
 import matplotlib
-matplotlib.use("Agg")   # 不弹窗口，直接存图
+matplotlib.use("Agg")   # don't pop a window; save the plot directly
 import matplotlib.pyplot as plt
 
 plt.rcParams["font.sans-serif"] = ["PingFang SC", "Arial Unicode MS", "Heiti SC"]
@@ -41,104 +42,104 @@ import bcg_monitor as bcg
 
 def main():
     print("=" * 64)
-    print(" BCG 呼吸/心跳监测演示：正常 → 呼吸暂停 → 恢复")
+    print(" BCG breathing/heartbeat monitoring demo: normal → apnea → recovery")
     print("=" * 64)
     print()
 
-    # ---- ① 合成一段床垫信号（标准答案：呼吸 15 次/分，心跳 72 次/分）----
+    # ---- ① synthesize a mattress signal (ground truth: breathing 15 breaths/min, heartbeat 72 beats/min) ----
     TRUE_RESP = 15.0
     TRUE_HR = 72.0
     t, signal = bcg.simulate_bcg(
         duration_sec=60, resp_rate=TRUE_RESP, heart_rate=TRUE_HR,
-        apnea=(20, 40),   # 第 20~40 秒呼吸暂停
+        apnea=(20, 40),   # breathing pause during seconds 20~40
     )
-    print("[1/4] 已合成 60 秒床垫信号（呼吸 15 次/分 + 心跳 72 次/分 + 噪声）")
-    print(f"      第 20~40 秒人为设置了一段「呼吸暂停」")
+    print("[1/4] Synthesized a 60-second mattress signal (breathing 15 breaths/min + heartbeat 72 beats/min + noise)")
+    print(f"      seconds 20~40 were manually set as a 'breathing pause'")
 
-    # ---- ② 提取呼吸率、心率 ----
+    # ---- ② extract breathing rate and heart rate ----
     est_resp = bcg.estimate_breathing_rate(signal)
     est_hr = bcg.estimate_heart_rate(signal)
     print()
-    print("[2/4] 提取结果 vs 真实值：")
-    print(f"      呼吸率：真实 {TRUE_RESP:>4.1f} 次/分 → 提取 {est_resp:>4.1f} 次/分"
-          f"（误差 {abs(est_resp - TRUE_RESP):.1f}）")
-    print(f"      心率　：真实 {TRUE_HR:>4.1f} 次/分 → 提取 {est_hr:>4.1f} 次/分"
-          f"（误差 {abs(est_hr - TRUE_HR):.1f}）")
+    print("[2/4] Extraction results vs true values:")
+    print(f"      breathing rate: true {TRUE_RESP:>4.1f} breaths/min → extracted {est_resp:>4.1f} breaths/min"
+          f" (error {abs(est_resp - TRUE_RESP):.1f})")
+    print(f"      heart rate:    true {TRUE_HR:>4.1f} beats/min → extracted {est_hr:>4.1f} beats/min"
+          f" (error {abs(est_hr - TRUE_HR):.1f})")
 
-    # ---- ③ 检测呼吸暂停 ----
+    # ---- ③ detect apnea ----
     flags, window_t = bcg.detect_apnea(signal, window_sec=10)
     print()
-    print("[3/4] 呼吸暂停检测（每 10 秒一个窗口）：")
+    print("[3/4] Apnea detection (one window per 10 seconds):")
     apnea_windows = []
     for i, (flag, wt) in enumerate(zip(flags, window_t)):
-        mark = "⚠️ 疑似呼吸暂停" if flag else "正常"
+        mark = "⚠️ suspected apnea" if flag else "normal"
         if flag:
             apnea_windows.append(wt)
-        print(f"      第 {wt:>3.0f}~{wt + 10:>3.0f} 秒 → {mark}")
+        print(f"      seconds {wt:>3.0f}~{wt + 10:>3.0f} → {mark}")
     if apnea_windows:
-        print(f"      → 成功揪出 {len(apnea_windows)} 段暂停（正是第 20~40 秒）")
+        print(f"      → successfully caught {len(apnea_windows)} pause(s) (exactly seconds 20~40)")
     else:
-        print("      → 未检出暂停")
+        print("      → no pause detected")
 
-    # ---- ④ 画图 ----
+    # ---- ④ draw plots ----
     path = plot_signal(t, signal, flags, window_t)
     print()
-    print(f" 产出图：{path}")
+    print(f" output plot: {path}")
     print()
-    print(" ✅ 完成。打开那张图：")
-    print("    上图 = 原始信号（呼吸的大波浪 + 心跳的小锯齿，暂停段被红框标出）")
-    print("    中图 = 放大前 5 秒，看清呼吸（慢波）和心跳（快波）的叠加")
-    print("    下图 = FFT 频谱，两个峰就是呼吸（0.25 Hz）和心跳（1.2 Hz）")
+    print(" ✅ done. Open that plot:")
+    print("    top = raw signal (large breathing waves + fine heartbeat ripple; pause interval marked with a red box)")
+    print("    middle = zoom into the first 5 seconds, to see breathing (slow wave) and heartbeat (fast wave) superimposed")
+    print("    bottom = FFT spectrum; the two peaks are breathing (0.25 Hz) and heartbeat (1.2 Hz)")
 
 
 def plot_signal(t, signal, apnea_flags, window_t):
-    """画三张子图：全貌信号 / 放大细节 / FFT 频谱。"""
+    """Draw three subplots: full signal / zoomed detail / FFT spectrum."""
     os.makedirs(OUT_DIR, exist_ok=True)
     fs = bcg.FS
 
     fig, axes = plt.subplots(3, 1, figsize=(13, 11))
 
-    # ---- 子图1：60 秒全貌，标出暂停区间 ----
+    # ---- subplot 1: 60 s full view, marking the pause interval ----
     ax = axes[0]
-    ax.plot(t, signal, color="#2c5f8a", linewidth=1.0, label="床垫压力信号")
-    # 暂停区间画红框
+    ax.plot(t, signal, color="#2c5f8a", linewidth=1.0, label="mattress pressure signal")
+    # draw a red box over the pause interval
     for i, flag in enumerate(apnea_flags):
         if flag:
             ax.axvspan(window_t[i], window_t[i] + 10, color="red", alpha=0.25)
-    ax.set_title("① 整段信号（60 秒）：红色阴影 = 检测出的呼吸暂停")
-    ax.set_xlabel("时间（秒）")
-    ax.set_ylabel("压力读数")
+    ax.set_title("① full signal (60 s): red shading = detected apnea")
+    ax.set_xlabel("time (s)")
+    ax.set_ylabel("pressure reading")
     ax.set_ylim(bottom=signal.min() - 2, top=signal.max() + 2)
     ax.legend(fontsize=9)
     ax.grid(True, alpha=0.3)
 
-    # ---- 子图2：放大前 5 秒，看清呼吸慢波 + 心跳快波 ----
+    # ---- subplot 2: zoom into the first 5 s, to see the slow breathing wave + fast heartbeat ripple ----
     ax = axes[1]
     seg = t < 5
     ax.plot(t[seg], signal[seg], color="#2c5f8a", linewidth=1.4)
-    ax.set_title("② 放大前 5 秒：慢的大波浪 = 呼吸，快的小锯齿 = 心跳")
-    ax.set_xlabel("时间（秒）")
-    ax.set_ylabel("压力读数")
+    ax.set_title("② zoom into the first 5 s: large slow waves = breathing, fine fast ripple = heartbeat")
+    ax.set_xlabel("time (s)")
+    ax.set_ylabel("pressure reading")
     ax.grid(True, alpha=0.3)
 
-    # ---- 子图3：FFT 频谱，标出两个峰 ----
+    # ---- subplot 3: FFT spectrum, marking the two peaks ----
     ax = axes[2]
     n = len(signal)
     spectrum = np.abs(np.fft.rfft(signal))
     freqs = np.fft.rfftfreq(n, d=1.0 / fs)
-    # 用 log 尺度，让大的呼吸峰和小心跳峰都看得清；+1 防止 log(0)
+    # log scale so the large breathing peak and small heartbeat peak are both visible; +1 avoids log(0)
     ax.plot(freqs, np.log10(spectrum + 1), color="#7a4d8f", linewidth=1.4)
-    # 标出呼吸峰和心跳峰
+    # mark the breathing peak and heartbeat peak
     resp_peak = bcg.estimate_breathing_rate(signal) / 60.0
     hr_peak = bcg.estimate_heart_rate(signal) / 60.0
     ax.axvline(resp_peak, color="green", linestyle="--", linewidth=1.4,
-               label=f"呼吸峰 {resp_peak:.2f} Hz")
+               label=f"breathing peak {resp_peak:.2f} Hz")
     ax.axvline(hr_peak, color="red", linestyle="--", linewidth=1.4,
-               label=f"心跳峰 {hr_peak:.2f} Hz")
-    ax.set_xlim(0, 2.0)   # 只看 0~2 Hz，够罩住呼吸和心跳了
-    ax.set_title("③ FFT 频谱：两个峰 = 呼吸（低频）和心跳（高频）各占一段")
-    ax.set_xlabel("频率（Hz）")
-    ax.set_ylabel("能量（log 尺度）")
+               label=f"heartbeat peak {hr_peak:.2f} Hz")
+    ax.set_xlim(0, 2.0)   # only look at 0~2 Hz, enough to cover breathing and heartbeat
+    ax.set_title("③ FFT spectrum: two peaks = breathing (low freq) and heartbeat (high freq) each in its own band")
+    ax.set_xlabel("frequency (Hz)")
+    ax.set_ylabel("energy (log scale)")
     ax.legend(fontsize=9)
     ax.grid(True, alpha=0.3)
 

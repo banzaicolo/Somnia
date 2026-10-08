@@ -2,28 +2,31 @@
 # -*- coding: utf-8 -*-
 """
 =============================================================================
-标定全流程演示 —— 看一条完整的标定链把脏数据洗到多干净
+Full calibration pipeline demo — see how a complete calibration chain cleans the dirty data
 =============================================================================
 
-【这脚本干嘛的？】
+[What does this script do?]
 
-《零点校准演示》只给你看了一招（减法）。但这个文件把**全部招式串起来**：
-串扰校正 + 温漂补偿 + 零点校准 + 增益校准，一步一步把脏数据洗回真相。
+The Zero Calibration Demo only showed you one move (subtraction). This file chains
+**all the moves together**: crosstalk correction + temp drift compensation + zero
+calibration + gain calibration, step by step washing the dirty data back to the truth.
 
-还加了个"剧情"：标定是在 25 度做的，结果运行时温度飙到 40 度，
-传感器漂了。你看"不补偿温度"和"补偿温度"差多少。
+It also adds a "plot": calibration was done at 25 degrees, but at runtime the
+temperature soars to 40 degrees and the sensor drifts. You'll see how much
+difference "not compensating temperature" vs "compensating temperature" makes.
 
-【怎么运行】
+[How to run]
 
     python3 src/calibration_demo.py
 
-会打印每一步的误差数字，并在 outputs/ 生成一张对比图：
+It prints the error numbers at each step and generates one comparison figure in outputs/:
   calibration_full.png
 
-【你要重点看什么】
+[What to focus on]
 
-跑完看终端里那个"误差缩小了 X%"，以及最后那张图右下角的误差图——
-校准前一片红（到处虚报），完整校准后几乎全白（接近真相）。
+After running, look at the "error shrank by X%" in the terminal, and the error map in
+the bottom-right of the last figure — before calibration it's all red (false reports
+everywhere), after full calibration it's nearly all white (close to the truth).
 =============================================================================
 """
 
@@ -44,30 +47,31 @@ import calibration as cal
 from verdict import describe_improvement
 
 
-# ---- 标定场景的参数（都是"真实世界会有"的数）----
-T_REF = 25.0      # 标定时的温度（摄氏度）
-T_RUN = 40.0      # 运行时的温度（温度漂了 15 度）
-CROSSTALK = 0.10  # 串扰系数
-NOISE_STD = 3.0   # 噪声强度
-P0 = 50.0         # 标定用的"标准压力"（相当于一个已知重量的砝码）
+# ---- parameters of the calibration scenario (all "real-world" numbers) ----
+T_REF = 25.0      # temperature during calibration (Celsius)
+T_RUN = 40.0      # temperature at runtime (drifted by 15 degrees)
+CROSSTALK = 0.10  # crosstalk coefficient
+NOISE_STD = 3.0   # noise strength
+P0 = 50.0         # "standard pressure" used for calibration (equivalent to a known-mass weight)
 
 
 def build_sensor_world(rng):
     """
-    构造一个"假想传感器"的世界：每个点的灵敏度、零点偏移、
-    温度系数都随机但固定（这就是真实传感器的"出厂参数"）。
+    Construct a "virtual sensor" world: each point's sensitivity, zero offset, and
+    temperature coefficients are random but fixed (these are a real sensor's
+    "factory parameters").
 
-    返回一个字典，装着所有这些参数。
+    Returns a dict holding all these parameters.
     """
-    # 每个点的灵敏度（真值，围绕 1 浮动 ±15%）
+    # per-point sensitivity (ground truth, floats ±15% around 1)
     gain_ref = rng.normal(1.0, 0.15, size=(GRID_H, GRID_W))
 
-    # 每个点的基准零点偏移（老化 + 工艺造成，0~8）
+    # per-point baseline zero offset (caused by aging + manufacturing, 0~8)
     offset_ref = rng.uniform(0, 8, size=(GRID_H, GRID_W))
 
-    # 温度系数：每升 1 度，零点飘多少（TCO）、灵敏度变多少比例（TCS）
-    tco_map = rng.uniform(0.3, 0.8, size=(GRID_H, GRID_W))   # 每度飘 0.3~0.8
-    tcs_map = rng.uniform(0.001, 0.004, size=(GRID_H, GRID_W))  # 每度变 0.1%~0.4%
+    # temperature coefficients: per +1 degree, how much the zero drifts (TCO) and how much the sensitivity ratio changes (TCS)
+    tco_map = rng.uniform(0.3, 0.8, size=(GRID_H, GRID_W))   # drifts 0.3~0.8 per degree
+    tcs_map = rng.uniform(0.001, 0.004, size=(GRID_H, GRID_W))  # changes 0.1%~0.4% per degree
 
     return {
         "gain_ref": gain_ref,
@@ -78,52 +82,53 @@ def build_sensor_world(rng):
 
 
 def offset_at(world, temp):
-    """某温度下的零点偏移 = 基准偏移 + 温漂。"""
+    """Zero offset at a given temperature = baseline offset + temp drift."""
     return world["offset_ref"] + world["tco_map"] * (temp - T_REF)
 
 
 def gain_at(world, temp):
-    """某温度下的灵敏度 = 基准灵敏度 × (1 + 温漂增益)。"""
+    """Sensitivity at a given temperature = baseline sensitivity × (1 + temp drift gain)."""
     return world["gain_ref"] * (1.0 + world["tcs_map"] * (temp - T_REF))
 
 
 def main():
     print("=" * 64)
-    print(" 传感器标定全流程演示（串扰+温漂+零点+增益 四招连发）")
+    print(" Full sensor calibration pipeline demo (crosstalk + temp drift + zero + gain, four moves in a row)")
     print("=" * 64)
     print()
 
     rng = np.random.default_rng(SEED)
     world = build_sensor_world(rng)
 
-    # ---- 1. 真实体压（标准答案）----
+    # ---- 1. true body pressure (ground truth) ----
     ideal = make_ideal_pressure(GRID_W, GRID_H, BODY_PARTS)
-    print("[1/5] 标准答案已生成（人真实压上去的样子）")
+    print("[1/5] ground truth generated (what a person actually pressing looks like)")
 
-    # ---- 2. 运行时（温度 40 度）传感器读到的脏数据 ----
+    # ---- 2. dirty data the sensor reads at runtime (temperature 40 degrees) ----
     offset_run = offset_at(world, T_RUN)
     gain_run = gain_at(world, T_RUN)
     noise = rng.normal(0, NOISE_STD, size=(GRID_H, GRID_W))
     raw = cal.forward(ideal, gain_run, offset_run, CROSSTALK, noise)
-    print(f"[2/5] 运行时温度 {T_RUN:.0f}℃，脏数据已生成（含串扰/温漂/噪声）")
+    print(f"[2/5] runtime temperature {T_RUN:.0f}°C, dirty data generated (with crosstalk / temp drift / noise)")
     err_raw = cal.mean_abs_error(raw, ideal)
-    print(f"      脏数据平均误差 = {err_raw:.1f}")
+    print(f"      dirty data mean error = {err_raw:.1f}")
 
-    # ---- 3. 模拟"标定动作"（在 25 度下测参数）----
-    # 真实标定会采很多帧取平均，把噪声压到几乎为零。所以这里标定数据
-    # 用"无噪声"版本（等于充分多帧平均后的理想结果），这样能看清
-    # 标定链对"系统误差"的极限威力。
-    # 3a. 空载测基线
+    # ---- 3. simulate the "calibration actions" (measure parameters at 25 degrees) ----
+    # Real calibration takes many frames and averages them to push noise nearly to zero.
+    # So here the calibration data uses a "no-noise" version (the ideal result after
+    # enough frame averaging), to clearly show the calibration chain's extreme power
+    # against "systematic error".
+    # 3a. measure the baseline at no-load
     baseline = cal.estimate_baseline(
         offset_at(world, T_REF), c=CROSSTALK, noise_std=0.0, rng=rng)
-    # 3b. 用标准压力 P0 测增益
-    ideal_ref = np.full((GRID_H, GRID_W), P0)   # 一块均匀的标准压力
+    # 3b. measure gain with the standard pressure P0
+    ideal_ref = np.full((GRID_H, GRID_W), P0)   # a uniform slab of standard pressure
     raw_ref = cal.forward(ideal_ref, gain_at(world, T_REF),
                           offset_at(world, T_REF), CROSSTALK, 0.0)
     gain_est = cal.estimate_gain(ideal_ref, raw_ref, baseline, c=CROSSTALK)
-    print("[3/5] 标定动作完成：空载测得基线、标准压力测得每个点灵敏度")
+    print("[3/5] calibration actions done: no-load measured the baseline, standard pressure measured each point's sensitivity")
 
-    # ---- 4. 跑完整校准流水线 ----
+    # ---- 4. run the full calibration pipeline ----
     cleaned = cal.calibrate(
         raw,
         baseline=baseline,
@@ -133,20 +138,21 @@ def main():
         tco_map=world["tco_map"], tcs_map=world["tcs_map"],
     )
     err_clean = cal.mean_abs_error(cleaned, ideal)
-    print(f"[4/5] 完整校准后，平均误差 = {err_clean:.1f}")
-    print(f"      误差缩小了 {cal.improvement(err_raw, err_clean):.0f}%")
+    print(f"[4/5] after full calibration, mean error = {err_clean:.1f}")
+    print(f"      error shrank by {cal.improvement(err_raw, err_clean):.0f}%")
 
-    # ---- 4b. 对比：如果"不做温度补偿"会怎样 ----
+    # ---- 4b. comparison: what if we "skip temperature compensation" ----
     cleaned_no_temp = cal.calibrate(
         raw, baseline=baseline, gain_map=gain_est, c=CROSSTALK)
     err_no_temp = cal.mean_abs_error(cleaned_no_temp, ideal)
-    print(f"      （对照）不做温度补偿，误差还剩 {err_no_temp:.1f}，"
-          f"只缩小 {cal.improvement(err_raw, err_no_temp):.0f}%")
+    print(f"      (control) without temperature compensation, error remains {err_no_temp:.1f}, "
+          f"only shrank {cal.improvement(err_raw, err_no_temp):.0f}%")
 
-    # ---- 4c. 关键：区分「系统误差」和「随机噪声」 ----
-    # 上面校准后还剩 {err_clean:.1f} 误差，大头是随机噪声（老电视雪花），
-    # 噪声每次都不一样，标定消不掉，要靠"滤波"。把噪声关掉再看，
-    # 就能看清标定链对"系统误差"（增益/偏移/串扰/温漂）的真实威力：
+    # ---- 4c. key point: distinguish "systematic error" from "random noise" ----
+    # The error remaining after the calibration above is mostly random noise (old TV
+    # static); noise differs every time, so calibration can't remove it — that needs
+    # "filtering". Turn the noise off and look again, and you'll see the calibration
+    # chain's real power against "systematic error" (gain / offset / crosstalk / temp drift):
     raw_sys = cal.forward(ideal, gain_run, offset_run, CROSSTALK, 0.0)
     cleaned_sys = cal.calibrate(
         raw_sys, baseline=baseline, gain_map=gain_est, c=CROSSTALK,
@@ -154,55 +160,55 @@ def main():
         tco_map=world["tco_map"], tcs_map=world["tcs_map"])
     err_raw_sys = cal.mean_abs_error(raw_sys, ideal)
     err_clean_sys = cal.mean_abs_error(cleaned_sys, ideal)
-    print(f"      （无噪声对照）纯系统误差 {err_raw_sys:.1f} → {err_clean_sys:.1f}，"
-          f"缩小 {cal.improvement(err_raw_sys, err_clean_sys):.0f}%")
+    print(f"      (no-noise control) pure systematic error {err_raw_sys:.1f} -> {err_clean_sys:.1f}, "
+          f"shrank {cal.improvement(err_raw_sys, err_clean_sys):.0f}%")
 
-    # ---- 5. 画图 ----
+    # ---- 5. plot ----
     plot(ideal, raw, cleaned_no_temp, cleaned, err_raw, err_no_temp, err_clean)
-    print("[5/5] 对比图已生成，去 outputs/ 打开 calibration_full.png")
+    print("[5/5] comparison figure generated; open calibration_full.png in outputs/")
     print()
-    # 结尾不再写死「一片红…几乎全白」，改成根据误差数字动态判断。
+    # The ending no longer hard-codes "all red ... nearly all white"; it's decided dynamically by the error numbers.
     improve_full = cal.improvement(err_raw, err_clean)
-    print(f" ✅ 完成。完整校准后平均误差 {err_clean:.1f}，"
-          f"误差缩小 {improve_full:.0f}%：{describe_improvement(improve_full)}")
-    print("    （右下角误差图：红=读数偏高，蓝=偏低，白=准确，可自行对照）")
+    print(f" ✅ Done. Mean error after full calibration {err_clean:.1f}, "
+          f"error shrank {improve_full:.0f}%: {describe_improvement(improve_full)}")
+    print("    (bottom-right error map: red = reads high, blue = low, white = accurate; compare yourself)")
 
 
 def plot(ideal, raw, no_temp, cleaned, err_raw, err_no_temp, err_clean):
-    """画 2×2 对比图，统一色标，右下是误差图。"""
+    """Draw a 2×2 comparison figure with a unified colorbar; bottom-right is the error map."""
     os.makedirs(OUT_DIR, exist_ok=True)
 
     fig, axes = plt.subplots(2, 2, figsize=(16, 13))
 
     vmax = max(ideal.max(), raw.max())
 
-    # 左上：标准答案
+    # top-left: ground truth
     im0 = axes[0, 0].imshow(ideal, cmap="hot", vmin=0, vmax=vmax, interpolation="bicubic")
-    axes[0, 0].set_title(f"标准答案（真实压力）", fontsize=12)
+    axes[0, 0].set_title(f"Ground truth", fontsize=12)
     fig.colorbar(im0, ax=axes[0, 0], fraction=0.046)
 
-    # 右上：脏数据
+    # top-right: dirty data
     im1 = axes[0, 1].imshow(raw, cmap="hot", vmin=0, vmax=vmax, interpolation="bicubic")
-    axes[0, 1].set_title(f"脏数据（误差 {err_raw:.0f}）", fontsize=12)
+    axes[0, 1].set_title(f"Dirty data (err {err_raw:.0f})", fontsize=12)
     fig.colorbar(im1, ax=axes[0, 1], fraction=0.046)
 
-    # 左下：不做温度补偿的校准
+    # bottom-left: calibration without temperature compensation
     im2 = axes[1, 0].imshow(no_temp, cmap="hot", vmin=0, vmax=vmax, interpolation="bicubic")
-    axes[1, 0].set_title(f"不补偿温度（误差 {err_no_temp:.0f}）", fontsize=12)
+    axes[1, 0].set_title(f"No temp compensation (err {err_no_temp:.0f})", fontsize=12)
     fig.colorbar(im2, ax=axes[1, 0], fraction=0.046)
 
-    # 右下：误差图（完整校准 - 标准答案），红=偏高 蓝=偏低 白=准确
+    # bottom-right: error map (cleaned - truth), red=high blue=low white=correct
     err_map = cleaned - ideal
     lim = max(abs(err_map.min()), abs(err_map.max()), 1.0)
     im3 = axes[1, 1].imshow(err_map, cmap="seismic", vmin=-lim, vmax=lim, interpolation="bicubic")
-    axes[1, 1].set_title(f"完整校准后的误差图（误差 {err_clean:.1f}）", fontsize=12)
+    axes[1, 1].set_title(f"Error after full calibration (err {err_clean:.1f})", fontsize=12)
     fig.colorbar(im3, ax=axes[1, 1], fraction=0.046)
 
     for ax in axes.flat:
         ax.set_xticks([])
         ax.set_yticks([])
 
-    fig.suptitle("完整标定链：四招连发，把脏数据洗回真相", fontsize=15)
+    fig.suptitle("Full calibration chain: four fixes that recover the truth", fontsize=15)
     plt.tight_layout()
     path = os.path.join(OUT_DIR, "calibration_full.png")
     plt.savefig(path, dpi=200, bbox_inches="tight")

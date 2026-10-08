@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-verdict 模块的测试 —— 验证「数字 → 结论」的判断规则正确。
+Tests for the verdict module — verify the "number → conclusion" decision rules.
 
-重点测两件事：
-  1. 每个函数在每个分档区间，返回的字样对不对（阈值边界尤其要测）
-  2. render_pose_verdict 综合函数，返回的行数和内容对不对
+Two main things to test:
+  1. Each function returns the right wording in every band (especially boundaries)
+  2. The render_pose_verdict combined function returns the right number of lines and content
 
-为什么给「结论生成器」写测试？因为它是一堆 if 判断，
-边界条件最容易写错。而且一旦有人调了阈值（比如把 80 改成 90），
-测试会立刻报错提醒他「你改规则了，看看是不是有意为之」。
+Why write tests for the "verdict generator"? Because it is a pile of if-conditions,
+and boundary conditions are the easiest to get wrong. Also, if someone tweaks a
+threshold (e.g. changes 80 to 90), the test fails immediately, reminding them
+"you changed a rule — check whether that was intentional".
 """
 
 from verdict import (
@@ -22,162 +23,162 @@ from verdict import (
 
 
 # ============================================================================
-# describe_improvement：改善程度
+# describe_improvement: improvement level
 # ============================================================================
 
 
 def test_improvement_negative():
-    """改善为负 = 误差不降反升。"""
-    assert "误差不降反升" in describe_improvement(-5.0)
+    """Negative improvement = error rose."""
+    assert "Error did not decrease but increased" in describe_improvement(-5.0)
 
 
 def test_improvement_zero():
-    """0% = 几乎无改善。"""
-    assert "几乎无改善" in describe_improvement(0.0)
+    """0% = almost no improvement."""
+    assert "Almost no improvement" in describe_improvement(0.0)
 
 
 def test_improvement_low_band():
-    """20% 以下 = 几乎无改善。"""
-    assert "几乎无改善" in describe_improvement(10.0)
+    """Below 20% = almost no improvement."""
+    assert "Almost no improvement" in describe_improvement(10.0)
 
 
 def test_improvement_mid_band():
-    """20%~50% = 改善有限。"""
-    assert "改善有限" in describe_improvement(30.0)
+    """20%~50% = limited improvement."""
+    assert "Limited improvement" in describe_improvement(30.0)
 
 
 def test_improvement_high_band():
-    """50%~80% = 明显改善。"""
-    assert "明显改善" in describe_improvement(60.0)
+    """50%~80% = clear improvement."""
+    assert "Clear improvement" in describe_improvement(60.0)
 
 
 def test_improvement_clean():
-    """80% 以上 = 基本消除。"""
-    assert "基本消除" in describe_improvement(82.0)
+    """Above 80% = essentially eliminated."""
+    assert "Essentially eliminated" in describe_improvement(82.0)
 
 
 def test_improvement_boundary_80():
-    """刚好 80%（边界）也算「基本消除」。"""
-    assert "基本消除" in describe_improvement(80.0)
+    """Exactly 80% (boundary) also counts as 'essentially eliminated'."""
+    assert "Essentially eliminated" in describe_improvement(80.0)
 
 
 # ============================================================================
-# describe_robustness：稳健性
+# describe_robustness: robustness
 # ============================================================================
 
 
 def test_robustness_very():
-    """掉分 < 5 = 非常稳健。"""
-    assert "非常稳健" in describe_robustness(2.0)
+    """Drop < 5 = very robust."""
+    assert "Very robust" in describe_robustness(2.0)
 
 
 def test_robustness_fairly():
-    """掉分 5~15 = 较为稳健。"""
-    assert "较为稳健" in describe_robustness(10.0)
+    """Drop 5~15 = fairly robust."""
+    assert "Fairly robust" in describe_robustness(10.0)
 
 
 def test_robustness_hurt():
-    """掉分 15~30 = 性能明显下降。"""
-    assert "性能明显下降" in describe_robustness(20.0)
+    """Drop 15~30 = performance clearly degraded."""
+    assert "Performance clearly degraded" in describe_robustness(20.0)
 
 
 def test_robustness_collapse():
-    """掉分 >= 30 = 性能严重下降。"""
-    assert "性能严重下降" in describe_robustness(40.0)
+    """Drop >= 30 = performance severely degraded."""
+    assert "Performance severely degraded" in describe_robustness(40.0)
 
 
 def test_robustness_negative_treated_as_zero():
-    """掉分为负（脏数据反而更高分）按 0 处理 = 非常稳健。"""
-    assert "非常稳健" in describe_robustness(-3.0)
+    """Negative drop (dirty data scoring higher) treated as 0 = very robust."""
+    assert "Very robust" in describe_robustness(-3.0)
 
 
 # ============================================================================
-# describe_rescue：标定救援效果
+# describe_rescue: calibration rescue effect
 # ============================================================================
 
 
 def test_rescue_backfire():
-    """救回为负 = 未起正面作用。"""
-    assert "未起正面作用" in describe_rescue(-2.0)
+    """Negative recovery = no positive effect."""
+    assert "no positive effect" in describe_rescue(-2.0)
 
 
 def test_rescue_none():
-    """救回 < 1 = 几乎没有改善。"""
-    assert "几乎没有改善" in describe_rescue(0.3)
+    """Recovery < 1 = almost no improvement."""
+    assert "almost no improvement" in describe_rescue(0.3)
 
 
 def test_rescue_little():
-    """救回 1~5 = 轻微改善。"""
-    assert "轻微改善" in describe_rescue(3.0)
+    """Recovery 1~5 = slight improvement."""
+    assert "slight improvement" in describe_rescue(3.0)
 
 
 def test_rescue_clear():
-    """救回 5~15 = 明显改善。"""
-    assert "明显改善" in describe_rescue(10.0)
+    """Recovery 5~15 = clear improvement."""
+    assert "clear improvement" in describe_rescue(10.0)
 
 
 def test_rescue_boundary_5():
-    """刚好 5.0 分（边界）：< 5 才算轻微改善，5.0 已进入「明显改善」。"""
-    assert "明显改善" in describe_rescue(5.0)
-    assert "轻微改善" in describe_rescue(4.9)
+    """Exactly 5.0 points (boundary): < 5 is slight, 5.0 falls into 'clear improvement'."""
+    assert "clear improvement" in describe_rescue(5.0)
+    assert "slight improvement" in describe_rescue(4.9)
 
 
 def test_rescue_big():
-    """救回 >= 15 = 大幅改善。"""
-    assert "大幅改善" in describe_rescue(20.0)
+    """Recovery >= 15 = substantial improvement."""
+    assert "substantial improvement" in describe_rescue(20.0)
 
 
 # ============================================================================
-# describe_recovery：恢复程度
+# describe_recovery: recovery level
 # ============================================================================
 
 
 def test_recovery_full():
-    """残留 < 1 = 基本完全恢复。"""
-    assert "基本完全恢复" in describe_recovery(0.2)
+    """Residual < 1 = essentially fully recovered."""
+    assert "Essentially fully recovered" in describe_recovery(0.2)
 
 
 def test_recovery_almost():
-    """残留 1~5 = 基本恢复，仍有少量残余误差。"""
-    assert "仍有少量残余" in describe_recovery(3.0)
+    """Residual 1~5 = mostly recovered, minor residual error remains."""
+    assert "minor residual error remains" in describe_recovery(3.0)
 
 
 def test_recovery_incomplete():
-    """残留 >= 5 = 尚未完全恢复，且带具体分数。"""
+    """Residual >= 5 = not yet fully recovered, with the specific number."""
     out = describe_recovery(8.0)
-    assert "尚未完全恢复" in out
+    assert "Not yet fully recovered" in out
     assert "8.0" in out
 
 
 # ============================================================================
-# render_pose_verdict：综合结论
+# render_pose_verdict: combined verdict
 # ============================================================================
 
 
 def test_render_returns_three_lines():
-    """综合结论应返回 3 行，且每行都带上了对应的数字。"""
+    """The combined verdict should return 3 lines, each with its number."""
     lines = render_pose_verdict(0.99, 0.88, 0.99)
     assert isinstance(lines, list)
     assert len(lines) == 3
-    # 第一行讲稳健性（掉分 11.0）
+    # First line is robustness (drop 11.0)
     assert "11.0" in lines[0]
-    # 第二行讲标定效果（救回 11.0）
+    # Second line is calibration effect (recovered 11.0)
     assert "11.0" in lines[1]
-    # 第三行讲恢复程度（残留 0.0）
+    # Third line is recovery level (residual 0.0)
     assert "0.0" in lines[2]
 
 
 def test_render_full_recovery_scenario():
-    """干净 99%、脏 88%、洗回 99%：应得到「稳健+明显改善+完全恢复」的组合。"""
+    """Clean 99%, dirty 88%, rescued 99%: expect robust + clear improvement + fully recovered."""
     lines = render_pose_verdict(0.99, 0.88, 0.99)
-    assert "较为稳健" in lines[0]        # 掉 11 分 → 5~15 档
-    assert "明显改善" in lines[1]         # 救回 11 分 → 5~15 档
-    assert "基本完全恢复" in lines[2]     # 残留 0 分
+    assert "Fairly robust" in lines[0]        # dropped 11 points → 5~15 band
+    assert "clear improvement" in lines[1]    # recovered 11 points → 5~15 band
+    assert "Essentially fully recovered" in lines[2]     # residual 0 points
 
 
 def test_render_degraded_scenario():
-    """干净 99%、脏 50%、洗回 55%：性能严重下降、救回 5 分（明显改善）、尚未完全恢复。"""
+    """Clean 99%, dirty 50%, rescued 55%: severe degradation, 5 points recovered (clear improvement), not fully recovered."""
     lines = render_pose_verdict(0.99, 0.50, 0.55)
-    assert "性能严重下降" in lines[0]     # 掉 49 分
-    assert "明显改善" in lines[1]         # 救回 5.0 分 → 落在「明显改善」档
-    assert "尚未完全恢复" in lines[2]     # 残留 44 分
+    assert "Performance severely degraded" in lines[0]     # dropped 49 points
+    assert "clear improvement" in lines[1]         # recovered 5.0 points → falls into 'clear improvement' band
+    assert "Not yet fully recovered" in lines[2]     # residual 44 points

@@ -2,63 +2,69 @@
 # -*- coding: utf-8 -*-
 """
 =============================================================================
-sleep_staging.py —— 睡眠分期：把一整夜切成「清醒 / 浅睡 / 深睡 / 做梦」
+sleep_staging.py — sleep staging: split a full night into "wake / light / deep / REM"
 =============================================================================
 
-【这东西解决什么问题？】
+What problem does this solve?
 
-人睡觉不是一觉到天亮，而是一晚上在几个「睡眠阶段」之间来回切换，
-像坐过山车一样起起落落。睡眠分期（Sleep Staging）就是把这一整夜，
-一段一段地标出来：这一刻是醒着、浅睡、深睡，还是在做梦。
+People don't sleep through the night in one stretch — they cycle between several
+"sleep stages", rising and falling like a roller coaster. Sleep staging labels
+the whole night segment by segment: awake, light sleep, deep sleep, or dreaming.
 
-为什么要分期？—— 因为「睡够 8 小时」不等于「睡得好」。
-关键看深睡和做梦（REM）够不够。深睡负责身体修复、做梦负责记忆巩固。
-医生看一个人的睡眠，看的不是总时长，而是这张「睡眠分期图」。
+Why stage at all? Because "sleeping 8 hours" is not the same as "sleeping well".
+What matters is whether deep sleep and REM are sufficient. Deep sleep handles
+physical recovery; REM consolidates memory. When a doctor looks at someone's
+sleep, they don't look at total duration — they look at this "sleep staging chart".
 
-【怎么分？分几类？】
+How is it staged? How many classes?
 
-医学金标准（PSG，多导睡眠监测）靠脑电波，能分 5 类。
-咱家床垫没有脑电，只能靠「体动 + 心率 + 呼吸」间接猜，分 4 类：
+The medical gold standard (PSG, polysomnography) uses brain waves and can
+distinguish 5 classes. Our mattress has no EEG, so it can only guess indirectly
+from "movement + heart rate + breathing", and uses 4 classes:
 
-    0 清醒 wake —— 醒着
-    1 浅睡 light —— 刚睡着、睡得不深（医学里的 N1 + N2）
-    2 深睡 deep —— 睡得最沉、最解乏（医学里的 N3，也叫慢波睡眠）
-    3 做梦 rem —— 快速眼动睡眠（REM，Rapid Eye Movement），做梦、巩固记忆
+    0 wake  — awake
+    1 light — just fell asleep, not deeply (N1 + N2 in medicine)
+    2 deep  — the deepest, most restorative sleep (N3 in medicine, a.k.a. slow-wave sleep)
+    3 rem   — rapid eye movement sleep (REM), dreaming and memory consolidation
 
-【核心原理：每个阶段的「体动、心率、呼吸」长得不一样】
+Core principle: each stage's "movement, heart rate, breathing" looks different
 
-这是睡眠分期能「间接猜」的生理依据（没有脑电，就靠这些线索）：
+This is the physiological basis that lets sleep staging "guess indirectly"
+(no EEG, so it relies on these clues):
 
-    清醒：体动多、心率快且乱、呼吸不稳
-    浅睡：体动少、心率缓降、呼吸渐稳
-    深睡：体动几乎为 0、心率最慢最稳、呼吸又慢又稳
-    做梦：体动有微动、心率波动大（像醒着）、呼吸乱而不规则
+    wake:  lots of movement, fast and erratic heart rate, unstable breathing
+    light: little movement, heart rate eases down, breathing stabilizes
+    deep:  movement near zero, slowest and steadiest heart rate, slow steady breathing
+    rem:   slight movement, large heart-rate swings (like awake), irregular breathing
 
-每个 30 秒（这叫一个「分期单元」，英文 epoch），程序算 5 个数字：
+Every 30 seconds (one "staging unit", an epoch), the program computes 5 numbers:
 
-    1. 体动幅度   —— 这 30 秒动了多少（翻身 vs 一动不动）
-    2. 平均呼吸率 —— 呼吸每分钟多少次
-    3. 平均心率   —— 心跳每分钟多少次
-    4. 呼吸变异   —— 呼吸稳不稳（稳定 vs 忽快忽慢）
-    5. 心率变异   —— 心跳稳不稳（HRV 的简化版，稳 vs 乱）
+    1. movement amplitude   — how much the body moved in these 30 s (tossing vs. still)
+    2. mean breathing rate  — breaths per minute
+    3. mean heart rate      — beats per minute
+    4. breathing variability — how steady breathing is (stable vs. speeding up/slowing down)
+    5. heart-rate variability — how steady the heartbeat is (a simplified HRV, stable vs. erratic)
 
-把这 5 个数喂给分类器，就判断出这一小段是哪个阶段。
+Feed these 5 numbers to a classifier and it decides which stage that segment is.
 
-【诚实说明：这里为什么是「合成特征」，不是「从信号提取」？】
+Honest note: why "synthetic features" instead of "extracted from the signal"?
 
-从原始床垫信号里「挖」出呼吸率和心率的方法，上一个模块
-bcg_monitor.py 已经完整演示过了（用 FFT 按频率切）。
+The method for "digging" breathing rate and heart rate out of the raw mattress
+signal was already fully demonstrated in the previous module, bcg_monitor.py
+(splitting by frequency with FFT).
 
-本模块专注于「睡眠分期」这个新东西，所以直接把「每 30 秒的 5 个
-特征数字」用数学合成出来——这相当于「传感器已经把体动、心率、呼吸
-算好了，直接交给分期器」。真实的床垫系统里，这 5 个数就是先走一遍
-bcg_monitor 那样的信号处理得到的。两步分开做，各讲清一件事。
+This module focuses on the new topic of "sleep staging", so it synthesizes the
+"5 features per 30 s" mathematically — equivalent to "the sensor has already
+computed movement, heart rate, and breathing and hands them straight to the
+stager". In a real mattress system, those 5 numbers are obtained by running the
+signal through processing like bcg_monitor first. Splitting into two steps keeps
+each one focused on a single idea.
 
-【怎么用？】
+Usage:
 
     import sleep_staging as ss
-    X, y, names = ss.synthesize_night(480)   # 合成一整夜（480 个单元）
-    # X: (480, 5) 特征；y: (480,) 阶段编号；names: 阶段名列表
+    X, y, names = ss.synthesize_night(480)   # synthesize one night (480 epochs)
+    # X: (480, 5) features; y: (480,) stage labels; names: list of stage names
 
 =============================================================================
 """
@@ -67,27 +73,28 @@ import numpy as np
 
 
 # ============================================================================
-# 一、四个睡眠阶段 + 每阶段的「特征典型值」
+# 1. Four sleep stages + the "typical feature values" for each stage
 # ============================================================================
 
-# 阶段名列表：顺序固定，编号 0/1/2/3 就对应这里，训练和预测都用这个顺序
+# Stage name list: fixed order, indices 0/1/2/3 correspond to this list,
+# used in both training and prediction.
 STAGES = ["wake", "light", "deep", "rem"]
 
-# 中文名（REM 必须写全称，用户明确要求：缩写先给全称）
-STAGE_CN = {
-    "wake": "清醒",
-    "light": "浅睡",
-    "deep": "深睡",
-    "rem": "快速眼动(REM)",
+# Human-readable stage labels (used in plots and console output)
+STAGE_LABELS = {
+    "wake": "Wake",
+    "light": "Light",
+    "deep": "Deep",
+    "rem": "REM",
 }
 
-# 每个阶段的「特征典型值」（feature centers），顺序固定：
-#   [体动幅度, 平均呼吸率, 平均心率, 呼吸变异, 心率变异]
+# The "typical feature values" (feature centers) for each stage, fixed order:
+#   [movement amplitude, mean breathing rate, mean heart rate, breathing variability, HR variability]
 #
-# 这些数字是依据睡眠生理学设定的合理近似（不是瞎编）：
-#   心率：清醒最快(72)，深睡最慢(52)，做梦居中偏高(64)且波动大
-#   呼吸：深睡最慢最稳(13)，做梦最乱(变异 2.8)
-#   体动：清醒最高(0.70)，深睡几乎不动(0.03)，做梦有微动(0.08)
+# These numbers are reasonable approximations based on sleep physiology (not made up):
+#   heart rate: fastest when awake (72), slowest in deep sleep (52), mid-high in REM (64) with large swings
+#   breathing: slowest and steadiest in deep sleep (13), most erratic in REM (variability 2.8)
+#   movement: highest when awake (0.70), near zero in deep sleep (0.03), slight in REM (0.08)
 STAGE_CENTERS = {
     "wake":  [0.70, 16.0, 72.0, 2.5, 8.0],
     "light": [0.15, 15.0, 60.0, 1.5, 4.0],
@@ -95,57 +102,60 @@ STAGE_CENTERS = {
     "rem":   [0.08, 16.5, 64.0, 2.8, 7.0],
 }
 
-# 每个特征的「个体差异噪声」——模拟不同的人、不同的夜晚。
-# 顺序跟上面一样。数值是该特征加多少随机波动（标准差）。
-# 比如心率加 ±4 次/分，模拟「今晚睡得特别沉 / 换了个人」。
+# Per-feature "between-subject noise" — simulating different people, different nights.
+# Order matches above. Value is how much random fluctuation (std) to add to that feature.
+# E.g. heart rate gets ±4 bpm to simulate "slept extra deeply tonight / a different person".
 STAGE_NOISE = [0.10, 1.5, 4.0, 0.8, 2.0]
 
-# 每 30 秒一个分期单元。30 秒是医学分期的标准时长（AASM 标准）。
+# One staging unit every 30 s. 30 s is the standard staging duration in medicine (AASM standard).
 EPOCH_SEC = 30
 
 
 # ============================================================================
-# 二、合成一整晚的「睡眠结构」（阶段序列）
+# 2. Synthesize one full night's "sleep structure" (stage sequence)
 # ============================================================================
 
 def _build_sleep_structure(n_epochs, rng):
     """
-    生成一整晚的「阶段序列」——就是一个长长的列表，每个元素是
-    "wake"/"light"/"deep"/"rem" 之一，长度 = n_epochs。
+    Generate one full night's "stage sequence" — a long list where each element
+    is one of "wake"/"light"/"deep"/"rem", with length = n_epochs.
 
-    这模拟真实睡眠的「睡眠周期」（Sleep Cycle）：人入睡后，会按
-    「浅睡 → 深睡 → 浅睡 → 做梦(REM)」循环，一个周期约 90 分钟，
-    一晚 4~5 个周期。而且有两个铁律：
+    This simulates the real "sleep cycle": after falling asleep, the body cycles
+    through "light → deep → light → REM", about 90 minutes per cycle, 4–5 cycles
+    per night. There are two hard rules:
 
-      1. 深睡集中在前半夜（刚睡那几小时最深），后半夜越来越少；
-      2. 做梦(REM) 集中在后半夜（快天亮时梦最多），越往后越长。
+      1. deep sleep concentrates in the first half of the night (deepest in the
+         first few hours), thinning out toward morning;
+      2. REM concentrates in the second half (most dreams near dawn), getting
+         longer as the night goes on.
 
-    这两条规律是睡眠医学的常识，程序里用「深睡长度逐周期递减、
-    做梦长度逐周期递增」来体现。
+    These two rules are common knowledge in sleep medicine, reflected here by
+    "deep-sleep length decreases cycle by cycle, REM length increases cycle by cycle".
 
-    参数：
-      n_epochs —— 一共多少个 30 秒单元（8 小时 = 960 个）
-      rng      —— 随机数生成器
+    Parameters:
+      n_epochs — total number of 30 s units (8 hours = 960)
+      rng      — random number generator
 
-    返回：
-      stages —— list[str]，长度 n_epochs
+    Returns:
+      stages — list[str], length n_epochs
     """
     stages = []
 
-    # 入睡前：先清醒一小会儿（躺在床上还没睡着，2~5 个单元）
+    # Before falling asleep: a brief awake stretch first
+    # (lying in bed but not yet asleep, 2–5 units)
     stages += ["wake"] * int(rng.integers(2, 6))
 
-    cycle = 0   # 第几个睡眠周期
+    cycle = 0   # which sleep cycle we're on
     while len(stages) < n_epochs:
-        # ---- 每个周期的结构：浅睡 → 深睡 → 浅睡 → 做梦 ----
-        # 各阶段的时长设定，要让整晚比例接近真实睡眠：
-        #   浅睡占约一半（45~55%）、深睡约 20%、做梦约 20~25%、清醒 <5%。
+        # ---- Structure of each cycle: light → deep → light → REM ----
+        # Stage durations are set so the whole-night proportions match real sleep:
+        #   light ~half (45–55%), deep ~20%, REM ~20–25%, wake <5%.
         #
-        # 深睡长度：随周期递减（后半夜深睡变少）
+        # deep-sleep length: decreases with each cycle (less deep sleep later in the night)
         deep_len = int(rng.integers(18, 35) * max(0.35, 1.0 - 0.15 * cycle))
-        # 做梦长度：随周期递增（后半夜梦变长）
+        # REM length: increases with each cycle (dreams get longer later in the night)
         rem_len = int(rng.integers(8, 18) * (1.0 + 0.15 * cycle))
-        # 浅睡长度：两段加起来是「大头」，入睡浅睡较长
+        # light-sleep length: the two stretches together are the bulk; the first stretch is longer
         light_len = int(rng.integers(18, 32))
         light2_len = int(rng.integers(12, 24))
 
@@ -154,32 +164,33 @@ def _build_sleep_structure(n_epochs, rng):
         stages += ["light"] * light2_len
         stages += ["rem"] * max(2, rem_len)
 
-        # 一个周期结束，有约一半概率短暂醒一下（翻身、半梦半醒）
+        # One cycle done: with ~50% probability, briefly wake (toss, half-awake)
         if rng.random() < 0.5:
             stages += ["wake"] * int(rng.integers(1, 4))
 
         cycle += 1
 
-    # 截断到精确的 n_epochs 长度
+    # Truncate to exactly n_epochs
     return stages[:n_epochs]
 
 
 def synthesize_night(n_epochs=480, seed=42):
     """
-    合成「一整晚」的睡眠数据：阶段序列 + 每单元的特征向量。
+    Synthesize "one full night" of sleep data: stage sequence + per-unit feature vector.
 
-    这是没有真数据的替代方案（跟压力模拟器、BCG 合成信号一个思路）：
-    用数学「演」出一个标准答案，用来开发、验证睡眠分期算法。
+    This is the no-real-data fallback (same idea as the stress simulator and
+    the BCG synthesized signal): use math to "act out" a ground truth, used to
+    develop and validate the sleep-staging algorithm.
 
-    参数：
-      n_epochs —— 这一晚多少个 30 秒单元（默认 480 = 4 小时，演示够用；
-                  真实 8 小时睡眠 = 960）
-      seed     —— 随机种子，固定它每次结果一样，方便复现
+    Parameters:
+      n_epochs — how many 30 s units this night has (default 480 = 4 hours,
+                 enough for a demo; a real 8-hour sleep = 960)
+      seed     — random seed; fixing it makes results reproducible
 
-    返回：
-      X      —— (n_epochs, 5) 特征矩阵。每行是那 5 个特征数字
-      y      —— (n_epochs,) 阶段编号（0=清醒 1=浅睡 2=深睡 3=做梦）
-      names  —— 阶段名列表，即 STAGES（方便调用方知道编号对应什么）
+    Returns:
+      X      — (n_epochs, 5) feature matrix. Each row is those 5 feature numbers
+      y      — (n_epochs,) stage index (0=wake 1=light 2=deep 3=rem)
+      names  — list of stage names, i.e. STAGES (so callers know which index means what)
     """
     rng = np.random.default_rng(seed)
 
@@ -189,37 +200,38 @@ def synthesize_night(n_epochs=480, seed=42):
     for i, stage in enumerate(stages):
         center = np.array(STAGE_CENTERS[stage], dtype=float)
         noise = np.array(STAGE_NOISE, dtype=float)
-        # 中心 + 高斯噪声 → 这个单元的 5 个特征
+        # center + Gaussian noise → this unit's 5 features
         X[i] = center + rng.normal(0, 1, size=len(center)) * noise
-        # 体动幅度物理上不可能为负，呼吸率、心率也有下限，夹一下
+        # movement amplitude physically can't be negative, and breathing/heart rate
+        # have lower bounds too, so clamp them
         X[i, 0] = max(0.0, X[i, 0])
-        X[i, 1] = max(4.0, X[i, 1])   # 呼吸率最低 4 次/分
-        X[i, 2] = max(30.0, X[i, 2])  # 心率最低 30 次/分
+        X[i, 1] = max(4.0, X[i, 1])   # breathing rate floor 4 breaths/min
+        X[i, 2] = max(30.0, X[i, 2])  # heart rate floor 30 bpm
 
     y = np.array([STAGES.index(s) for s in stages], dtype=int)
     return X, y, list(STAGES)
 
 
 # ============================================================================
-# 三、造「多晚」的数据集（训练分类器需要大量样本）
+# 3. Build a "multi-night" dataset (training a classifier needs lots of samples)
 # ============================================================================
 
 def generate_dataset(n_nights=10, n_epochs=240, seed=42):
     """
-    合成多个夜晚，拼成一个大数据集，供训练分类器用。
+    Synthesize multiple nights and combine them into one large dataset for training.
 
-    参数：
-      n_nights —— 合成几个晚上（默认 10 晚）
-      n_epochs —— 每晚上多少个单元（默认 240 = 2 小时，训练够用也够快）
-      seed     —— 随机种子
+    Parameters:
+      n_nights — how many nights to synthesize (default 10)
+      n_epochs — how many units per night (default 240 = 2 hours; enough and fast for training)
+      seed     — random seed
 
-    返回：
-      X —— (总单元数, 5) 特征矩阵
-      y —— (总单元数,) 阶段编号
+    Returns:
+      X — (total units, 5) feature matrix
+      y — (total units,) stage index
     """
     X_list, y_list = [], []
     for i in range(n_nights):
-        # 每一晚用不同 seed，模拟「不同的夜」
+        # a different seed per night, simulating "different nights"
         X, y, _ = synthesize_night(n_epochs, seed=seed + i)
         X_list.append(X)
         y_list.append(y)
@@ -227,53 +239,58 @@ def generate_dataset(n_nights=10, n_epochs=240, seed=42):
 
 
 # ============================================================================
-# 四、特征标准化（机器学习标准动作）
+# 4. Feature standardization (standard ML practice)
 # ============================================================================
 
 def standardize(X, mean=None, std=None):
     """
-    把特征标准化：每列「减均值、除标准差」，变成均值 0、标准差 1。
+    Standardize features: for each column "subtract mean, divide by std",
+    yielding mean 0 and std 1.
 
-    为什么必须做？—— 5 个特征的单位差太远了：心率是 50~70 这种大数，
-    体动幅度是 0~1 的小数。如果不标准化，神经网络会「偏心」——
-    光看心率那个大数，忽略体动那个小数。标准化让 5 个特征「站到同一起跑线」。
+    Why is this required? The 5 features have wildly different units: heart rate
+    is a big number around 50–70, while movement amplitude is a small 0–1 value.
+    Without standardization the network would be "biased" — looking only at the
+    big heart-rate number and ignoring the small movement value. Standardization
+    puts all 5 features "on the same starting line".
 
-    参数：
-      X     —— (N, 5) 特征矩阵
-      mean  —— 各列均值。训练时传 None（由本函数算出并返回）；
-               预测时传训练集算出的 mean，保证「用同一把尺子」
-      std   —— 各列标准差，同上
+    Parameters:
+      X    — (N, 5) feature matrix
+      mean — per-column means. Pass None during training (computed here and returned);
+             pass the training-set mean during prediction, so you "measure with the same ruler"
+      std  — per-column std, same as above
 
-    返回：
-      X_scaled —— 标准化后的矩阵
-      mean, std —— 算出的均值、标准差（预测时要复用）
+    Returns:
+      X_scaled — standardized matrix
+      mean, std — the computed mean and std (reuse them at prediction time)
     """
     if mean is None:
         mean = X.mean(axis=0)
     if std is None:
         std = X.std(axis=0)
-    std_safe = np.where(std == 0, 1.0, std)   # 防止某列全一样导致除以 0
+    std_safe = np.where(std == 0, 1.0, std)   # avoid division by zero if a column is constant
     return (X - mean) / std_safe, mean, std
 
 
 # ============================================================================
-# 五、评估指标：混淆矩阵 + Cohen's Kappa
+# 5. Evaluation metrics: confusion matrix + Cohen's Kappa
 # ============================================================================
 
 def confusion_matrix(y_true, y_pred, n_classes):
     """
-    混淆矩阵：一张 n×n 的表格，行=真实阶段，列=预测阶段。
-    对角线（猜对的）数字越大越好；非对角线能看出「把什么错认成什么」。
+    Confusion matrix: an n×n table, rows = true stage, columns = predicted stage.
+    The bigger the diagonal (correct guesses) the better; off-diagonal shows
+    "what got mistaken for what".
 
-    医疗 AI 评价模型都用它，而不是笼统的准确率——因为要知道错在哪。
-    比如「深睡被错认成浅睡」比「深睡被错认成清醒」危害小得多。
+    Medical AI evaluation uses this rather than a blanket accuracy, because you
+    need to know where the errors are. For example, mistaking deep sleep for
+    light sleep is far less harmful than mistaking it for wake.
 
-    参数：
-      y_true, y_pred —— 真实/预测的阶段编号数组
-      n_classes      —— 类别数（4）
+    Parameters:
+      y_true, y_pred — true/predicted stage-index arrays
+      n_classes      — number of classes (4)
 
-    返回：
-      cm —— (n_classes, n_classes) 整数矩阵，cm[i][j] = 真实 i 被预测成 j 的个数
+    Returns:
+      cm — (n_classes, n_classes) integer matrix, cm[i][j] = count of true i predicted as j
     """
     cm = np.zeros((n_classes, n_classes), dtype=int)
     for t, p in zip(y_true, y_pred):
@@ -283,40 +300,41 @@ def confusion_matrix(y_true, y_pred, n_classes):
 
 def cohens_kappa(y_true, y_pred, n_classes):
     """
-    Cohen's Kappa（科恩卡帕系数，κ）—— 衡量「分期结果比随机猜好多少」。
+    Cohen's Kappa (κ) — measures "how much better than random guessing the staging is".
 
-    光看准确率有个坑：如果某类样本特别多（比如浅睡占了 50%），模型
-    只要「无脑全猜浅睡」准确率就有 50%，但这没本事。Kappa 专门修正
-    这个问题：它把「瞎蒙也能蒙对的」那部分扣掉，只看「真本事」。
+    Accuracy alone has a trap: if one class is very frequent (say light sleep is
+    50%), a model that mindlessly guesses "all light" still gets 50% accuracy, but
+    that's not skill. Kappa corrects for this: it subtracts the part you'd get
+    right by blind luck and only counts "real skill".
 
-    公式：κ = (观察一致率 - 期望一致率) / (1 - 期望一致率)
-      - 观察一致率：实际猜对的比例（就是准确率）
-      - 期望一致率：纯靠各类占比瞎蒙能蒙对的比例
+    Formula: κ = (observed agreement - expected agreement) / (1 - expected agreement)
+      - observed agreement: the proportion actually guessed correctly (i.e. accuracy)
+      - expected agreement: the proportion a blind guesser would get right from class priors alone
 
-    κ 的解读（睡眠分期领域的共识）：
-      κ = 1     完全一致
-      κ = 0     等于瞎蒙
-      κ ≥ 0.81  达到医疗级睡眠分期的达标线（这是脑电 PSG 的水平）
-      κ = 0.3~0.6  消费级非脑电（手表/床垫）的典型水平
+    Interpreting κ (consensus in the sleep-staging field):
+      κ = 1     perfect agreement
+      κ = 0     no better than guessing
+      κ ≥ 0.81  meets the medical-grade sleep-staging bar (EEG/PSG level)
+      κ = 0.3~0.6  typical for consumer-grade non-EEG (watch/mattress)
 
-    参数：
-      y_true, y_pred —— 真实/预测的阶段编号数组
-      n_classes      —— 类别数
+    Parameters:
+      y_true, y_pred — true/predicted stage-index arrays
+      n_classes      — number of classes
 
-    返回：
-      kappa —— float，-1 ~ 1
+    Returns:
+      kappa — float, -1 ~ 1
     """
     cm = confusion_matrix(y_true, y_pred, n_classes)
     n = cm.sum()
     if n == 0:
         return 0.0
 
-    observed = np.trace(cm) / n          # 观察一致率 = 准确率
-    # 期望一致率：每类「真实占比 × 预测占比」之和
+    observed = np.trace(cm) / n          # observed agreement = accuracy
+    # expected agreement: sum over classes of "true fraction × predicted fraction"
     expected = 0.0
     for i in range(n_classes):
-        row_ratio = cm[i].sum() / n      # 第 i 类的真实占比
-        col_ratio = cm[:, i].sum() / n   # 第 i 类的预测占比
+        row_ratio = cm[i].sum() / n      # true fraction of class i
+        col_ratio = cm[:, i].sum() / n   # predicted fraction of class i
         expected += row_ratio * col_ratio
 
     if expected >= 1.0:

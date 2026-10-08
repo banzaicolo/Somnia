@@ -2,44 +2,46 @@
 # -*- coding: utf-8 -*-
 """
 =============================================================================
-离床监测演示 —— 演一出「老人一整夜」的剧情，看清系统何时记录、何时报警
+Bed-exit monitoring demo — act out a "whole night of an elderly person" and
+show when the system records and when it alarms
 =============================================================================
 
-【这个脚本演示什么？】
+What does this script demonstrate?
 
-把 bed_monitor.py 的离床监测，套在一段"有头有尾"的整夜剧情上，让你
-看清楚系统怎么从一张张压力图，判断出"人在哪、要不要报警"的。
+It applies the bed-exit monitoring from bed_monitor.py to a complete night-long
+story, so you can see how the system goes from pressure maps, one frame at a
+time, to deciding "where the person is and whether to alarm".
 
-剧情（280 帧，假设每秒 1 帧，就是 4 分 40 秒；真实一晚要 8 小时，
-这里把时间压缩了，只为把故事讲清楚）：
+Story (280 frames, assuming 1 frame per second, i.e. 4 min 40 s; a real night
+is 8 hours — time is compressed here just to tell the story clearly):
 
-  帧  0~ 39   夜里入睡，躺平睡觉
-  帧 40~ 49   翻了个身（总压力微微掉，但人还在床上，不触发任何事）
-  帧 50~ 89   继续睡
-  帧 90~ 99   坐起来喝水（坐起状态，不报警）
-  帧 100~129  又躺下接着睡
-  帧 130~169  起夜下床去厕所，40 秒后自己回来了（正常起夜，不报警）
-  帧 170~199  回床继续睡
-  帧 200~279  又一次下床，这次迟迟没回来 → 超过时限才报警
+  frames  0~ 39   fall asleep at night, lying flat
+  frames 40~ 49   turn over (total pressure dips slightly, but still in bed, no trigger)
+  frames 50~ 89   keep sleeping
+  frames 90~ 99   sit up to drink water (sitting state, no alarm)
+  frames 100~129  lie back down and keep sleeping
+  frames 130~169  get up at night to the toilet, return on their own after 40 s (normal, no alarm)
+  frames 170~199  back in bed, keep sleeping
+  frames 200~279  get out of bed again, this time never coming back → alarm only after the time limit
 
-【系统要做的事】
-  1. 算出每帧的总压力（一个数）
-  2. 按比例判断每帧是"在床 / 坐起 / 离床"
-  3. 记录每次"离床事件"（几点下床、几点回来、去了多久）——不报警
-  4. 只有"下床后迟迟不归"才拉警报，人一回来就解除
+What the system does:
+  1. Compute each frame's total pressure (one number)
+  2. Judge each frame as "in bed / sitting up / out of bed" by ratio
+  3. Record each "bed-exit event" (when they left, when they returned, how long) — no alarm
+  4. Only "out of bed and not returning" triggers the alarm, cleared the moment they return
 
-【怎么运行】
+How to run:
 
     python3 src/bed_monitor_demo.py
 
-跑完会在「outputs」里生成 bed_monitor.png，一张状态时间线图。
+After running, it writes bed_monitor.png into "outputs" — a state timeline chart.
 =============================================================================
 """
 
 import os
 import numpy as np
 import matplotlib
-matplotlib.use("Agg")   # 不弹窗口，直接存图
+matplotlib.use("Agg")   # don't open a window, just save the figure
 import matplotlib.pyplot as plt
 
 plt.rcParams["font.sans-serif"] = ["PingFang SC", "Arial Unicode MS", "Heiti SC"]
@@ -52,30 +54,33 @@ from sensor_config import (
 import bed_monitor as bm
 
 
-# 演示用的"超时"时长。真实部署是 30 分钟（1800 帧），图上画不下，
-# 这里压缩成 50 帧，只为让"超时报警"这一下能在图里看得到。
+# The demo "timeout" duration. Real deployment is 30 minutes (1800 frames), which
+# won't fit on the chart; compressed to 50 frames here so the "timeout alarm"
+# moment is visible in the figure.
 DEMO_AWAY_TIMEOUT = 50
 
 
 def build_story(ideal, seed=SEED):
     """
-    构造整夜剧情帧序列（见文件头说明）。
+    Build the whole-night frame sequence (see the file header for the story).
 
-    每一帧 = 理想体压图 × 一个"压力系数"，再叠一点噪声（模拟真实读数）。
-    压力系数 w 就是"人有多实在压在床上"：
-        w=1.0 躺平全压着；w=0.7 翻身（重心略动但人还在）；w=0.4 坐起；w=0 下床。
+    Each frame = ideal body pressure map × a "pressure coefficient", plus a bit
+    of noise (simulating real readings). The pressure coefficient w is "how
+    solidly the person is pressing on the bed":
+        w=1.0 lying flat fully pressed; w=0.7 turned over (center of mass shifted a bit but still in bed);
+        w=0.4 sitting up; w=0 out of bed.
     """
     rng = np.random.default_rng(seed)
 
     weights = np.concatenate([
-        np.full(40, 1.0),   # 0~39   入睡
-        np.full(10, 0.7),   # 40~49  翻身（还在床）
-        np.full(40, 1.0),   # 50~89  继续睡
-        np.full(10, 0.4),   # 90~99  坐起喝水
-        np.full(30, 1.0),   # 100~129 又躺下
-        np.full(40, 0.0),   # 130~169 起夜去厕所（40 秒就回来）
-        np.full(30, 1.0),   # 170~199 回床继续睡
-        np.full(80, 0.0),   # 200~279 下床，这次迟迟不归 → 超时报警
+        np.full(40, 1.0),   # 0~39   fall asleep
+        np.full(10, 0.7),   # 40~49  turn over (still in bed)
+        np.full(40, 1.0),   # 50~89  keep sleeping
+        np.full(10, 0.4),   # 90~99  sit up to drink water
+        np.full(30, 1.0),   # 100~129 lie back down
+        np.full(40, 0.0),   # 130~169 get up to the toilet (back in 40 s)
+        np.full(30, 1.0),   # 170~199 back in bed, keep sleeping
+        np.full(80, 0.0),   # 200~279 out of bed, never returning → timeout alarm
     ])
 
     frames = []
@@ -88,53 +93,53 @@ def build_story(ideal, seed=SEED):
 
 def main():
     print("=" * 64)
-    print(" 离床监测演示：老人一整夜（翻身 / 喝水 / 起夜 / 超时未归）")
+    print(" Bed-exit monitoring demo: one night of an elderly person (turning / drinking / night exit / timeout)")
     print("=" * 64)
     print()
 
-    # ---- ① 造理想体压图 + 剧情 ----
+    # ---- 1. build the ideal pressure map + story ----
     ideal = make_ideal_pressure(GRID_W, GRID_H, BODY_PARTS)
     frames, weights = build_story(ideal)
-    print("[1/4] 已造出 280 帧整夜剧情（详见文件头说明）")
+    print("[1/4] Built 280 frames of the whole-night story (see the file header)")
 
-    # ---- ② 状态机：判每帧在不在床 ----
+    # ---- 2. state machine: judge in bed or not per frame ----
     states = bm.detect_states(frames)
 
-    # ---- ③ 离床事件：只记录，不报警 ----
+    # ---- 3. bed-exit events: record only, no alarm ----
     exits = bm.detect_exits(states)
-    # ---- ④ 报警：超时未归才拉响 ----
+    # ---- 4. alarm: only sounds when gone past the time limit ----
     alarms = bm.detect_alarms(states, away_timeout=DEMO_AWAY_TIMEOUT)
 
-    # ---- 打印离床事件（作息表）----
+    # ---- print bed-exit events (the routine table) ----
     print()
-    print("[2/4] 离床事件记录（下床很正常，只记录、不报警）：")
+    print("[2/4] Bed-exit events recorded (getting out of bed is normal; record only, no alarm):")
     if exits:
         for start, end in exits:
-            print(f"      第 {start:>3} 帧下床 → 第 {end:>3} 帧回来，离开 {end - start} 帧")
+            print(f"      frame {start:>3} out of bed → frame {end:>3} back, away {end - start} frames")
     else:
-        print("      （整夜没有一次有效的下床）")
+        print("      (no valid exit the whole night)")
 
-    # ---- 打印报警 ----
+    # ---- print the alarm ----
     print()
     alarm_idx = [i for i, a in enumerate(alarms) if a]
     if alarm_idx:
-        print(f"[3/4] 报警：第 {alarm_idx[0]} 帧拉响（下床已满 {DEMO_AWAY_TIMEOUT} 帧仍未回）")
-        print(f"       第 {alarm_idx[-1] + 1} 帧解除（老人回来了）")
+        print(f"[3/4] Alarm: sounds at frame {alarm_idx[0]} (out of bed {DEMO_AWAY_TIMEOUT} frames with no return)")
+        print(f"       cleared at frame {alarm_idx[-1] + 1} (the person returned)")
     else:
-        print("[3/4] 整夜平安，未触发任何报警")
+        print("[3/4] Peaceful night, no alarm triggered")
 
-    # ---- 画图 ----
+    # ---- plot ----
     path = plot_timeline(frames, states, alarms)
     print()
-    print(f" 产出图：{path}")
+    print(f" output figure: {path}")
     print()
-    print(" ✅ 完成。打开那张图：绿=在床、黄=坐起、红=离床。")
-    print("    注意：起夜（第 130~169 帧）那一段离床，系统只记录、没报警；")
-    print(f"    只有最后那一段离床超过 {DEMO_AWAY_TIMEOUT} 帧还没回来，才拉响警报。")
+    print(" ✅ Done. Open the figure: green=in bed, yellow=sitting up, red=out of bed.")
+    print("    Note: the night exit (frames 130~169) out-of-bed stretch is recorded only, no alarm;")
+    print(f"    only the last out-of-bed stretch past {DEMO_AWAY_TIMEOUT} frames with no return sounds the alarm.")
 
 
 def plot_timeline(frames, states, alarms):
-    """画总压力随时间的变化，按状态着色，标出报警区间。"""
+    """Plot total pressure over time, colored by state, with alarm intervals marked."""
     os.makedirs(OUT_DIR, exist_ok=True)
 
     totals = frames.reshape(frames.shape[0], -1).sum(axis=1)
@@ -143,7 +148,7 @@ def plot_timeline(frames, states, alarms):
 
     fig, ax = plt.subplots(figsize=(14, 5.5))
 
-    # 背景按状态着色（颜色淡，不抢曲线）
+    # background colored by state (light colors, so they don't drown out the curve)
     color_map = {bm.IN_BED: "#c6e8c6", bm.SITTING: "#ffe6b0", bm.OUT_OF_BED: "#f5c6c6"}
     i = 0
     while i < len(states):
@@ -154,24 +159,24 @@ def plot_timeline(frames, states, alarms):
         ax.axvspan(i, j, color=color_map[s], alpha=0.5, zorder=0)
         i = j
 
-    # 总压力曲线
-    ax.plot(t, totals, color="black", linewidth=1.8, zorder=2, label="总压力")
+    # total pressure curve
+    ax.plot(t, totals, color="black", linewidth=1.8, zorder=2, label="Total pressure")
 
-    # 两条阈值线：60% 在床线、15% 离床线
+    # two threshold lines: 60% in-bed line, 15% out-of-bed line
     ax.axhline(peak * 0.60, color="green", linestyle="--", linewidth=1.2,
-               label="在床线（60%）")
+               label="In-bed line (60%)")
     ax.axhline(peak * 0.15, color="red", linestyle="--", linewidth=1.2,
-               label="离床线（15%）")
+               label="Out-of-bed line (15%)")
 
-    # 报警区间：用红点标出（只有超时未归的那一段才报警）
+    # alarm intervals: marked with red dots (only the timeout stretch alarms)
     if any(alarms):
         alarm_idx = [i for i, a in enumerate(alarms) if a]
         ax.scatter(alarm_idx, [totals[i] for i in alarm_idx],
-                   color="red", s=45, zorder=3, label="超时报警")
+                   color="red", s=45, zorder=3, label="Timeout alarm")
 
-    ax.set_xlabel("帧（每秒 1 帧 → 就是秒）")
-    ax.set_ylabel("总压力（所有传感点之和）")
-    ax.set_title("离床监测：总压力 + 状态 + 超时报警时间线")
+    ax.set_xlabel("Frame (1 frame per second = seconds)")
+    ax.set_ylabel("Total pressure (sum of all sensor points)")
+    ax.set_title("Bed-exit monitoring: total pressure + state + timeout-alarm timeline")
     ax.legend(fontsize=9, loc="upper right")
     ax.grid(True, alpha=0.3)
     plt.tight_layout()

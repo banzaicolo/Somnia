@@ -2,15 +2,15 @@
 # -*- coding: utf-8 -*-
 """
 =============================================================================
-test_sleep_pipeline.py —— 睡眠分期「打通」模块的测试
+test_sleep_pipeline.py — tests for the sleep staging "wiring" module
 =============================================================================
 
-测这些事：
-  1. 合成整夜信号：形状对不对、能不能复现
-  2. 从波形挖特征：形状正确、数值有限、体动方向对（清醒 > 深睡）
-  3. 特征提取精度：呼吸率、心率挖出来离真实值很近（打通的核心证据）
-  4. 端到端：挖出来的特征真能训练出比随机强的分期器
-  5. 端到端整夜：对一整夜分期，κ 超过随机水平
+Tests these things:
+  1. synthesized full-night signal: correct shape, reproducible
+  2. digging features from the waveform: correct shape, finite values, movement direction correct (wake > deep)
+  3. feature-extraction accuracy: dug-out breathing/heart rate close to the true value (the core evidence of wiring)
+  4. end to end: the dug-out features really train a classifier stronger than random
+  5. end-to-end full night: staging a full night, κ above random level
 """
 
 import numpy as np
@@ -21,11 +21,11 @@ from sleep_staging import standardize, cohens_kappa, STAGE_CENTERS
 
 
 # ============================================================================
-# 一、合成整夜信号
+# 1. Synthesize a full-night signal
 # ============================================================================
 
-def test_simulate_信号形状():
-    """信号长度 = 段数 × 30 秒 × 采样率，标签长度 = 段数。"""
+def test_simulate_signal_shape():
+    """Signal length = segments × 30 s × sampling rate, label length = segments."""
     n_epochs = 50
     signal, y, names = sp.simulate_night_signal(n_epochs=n_epochs, seed=0)
     assert len(signal) == n_epochs * int(sp.EPOCH_SEC * sp.FS)
@@ -33,35 +33,35 @@ def test_simulate_信号形状():
     assert len(names) == n_epochs
 
 
-def test_simulate_可复现():
-    """同一 seed 两次合成，信号一模一样。"""
+def test_simulate_reproducible():
+    """Two syntheses with the same seed produce identical signals."""
     s1, y1, _ = sp.simulate_night_signal(40, seed=7)
     s2, y2, _ = sp.simulate_night_signal(40, seed=7)
     np.testing.assert_array_equal(s1, s2)
     np.testing.assert_array_equal(y1, y2)
 
 
-def test_simulate_不同seed不同():
-    """不同 seed 生成不同的夜。"""
+def test_simulate_different_seed_differs():
+    """Different seeds produce different nights."""
     _, y1, _ = sp.simulate_night_signal(100, seed=1)
     _, y2, _ = sp.simulate_night_signal(100, seed=2)
     assert not np.array_equal(y1, y2)
 
 
 # ============================================================================
-# 二、从波形挖特征
+# 2. Dig features out of the waveform
 # ============================================================================
 
-def test_extract_特征形状():
-    """提取的特征矩阵形状正确：(段数, 5)，且都是有限数。"""
+def test_extract_feature_shape():
+    """The extracted feature matrix has the correct shape (segments, 5), all finite values."""
     signal, _, _ = sp.simulate_night_signal(30, seed=3)
     X = sp.extract_epoch_features(signal)
     assert X.shape == (30, 5)
     assert np.isfinite(X).all()
 
 
-def test_extract_体动方向():
-    """清醒段的体动能量应明显大于深睡段（体动的生理差异）。"""
+def test_extract_movement_direction():
+    """Wake-segment movement energy should be clearly larger than deep-sleep (physiological movement difference)."""
     fs = sp.FS
     rng = np.random.default_rng(0)
     wake = sp._synthesize_epoch(STAGE_CENTERS["wake"][1], STAGE_CENTERS["wake"][2],
@@ -76,28 +76,28 @@ def test_extract_体动方向():
 
 
 # ============================================================================
-# 三、特征提取精度（打通的核心证据）
+# 3. Feature-extraction accuracy (the core evidence of wiring)
 # ============================================================================
 
-def test_提取呼吸率心率准确():
-    """从固定信号挖出的呼吸率/心率，应接近真实值（30 秒窗分辨率约 2 次/分）。"""
+def test_extract_breathing_and_heart_rate_accurate():
+    """The breathing/heart rate dug from a fixed signal should be close to the true value (30 s window resolution ≈ 2/min)."""
     fs = 50
     t = np.arange(int(30 * fs)) / fs
-    # 呼吸 15 次/分 + 心跳 72 次/分，无噪声
+    # breathing 15 breaths/min + heartbeat 72 beats/min, no noise
     sig = 100 + 5 * np.sin(2 * np.pi * (15 / 60) * t) \
              + 0.5 * np.sin(2 * np.pi * (72 / 60) * t)
     X = sp.extract_epoch_features(sig, fs=fs)
     assert X.shape == (1, 5)
-    assert abs(X[0, 1] - 15.0) < 2.5   # 呼吸率
-    assert abs(X[0, 2] - 72.0) < 3.0   # 心率
+    assert abs(X[0, 1] - 15.0) < 2.5   # breathing rate
+    assert abs(X[0, 2] - 72.0) < 3.0   # heart rate
 
 
 # ============================================================================
-# 四、端到端：挖出的特征能训练出有用的分期器
+# 4. End to end: the dug-out features train a useful classifier
 # ============================================================================
 
-def test_端到端分期准确率高于随机():
-    """从波形挖特征 → 训练 → 考试，准确率应远超四类随机猜的 25%。"""
+def test_end_to_end_staging_accuracy_above_random():
+    """Dig features from the waveform → train → exam; accuracy should far exceed four-class random guessing's 25%."""
     from mlp import TinyMLP
 
     X, y = sp.extract_dataset(n_nights=4, n_epochs=120, seed=42)
@@ -118,14 +118,14 @@ def test_端到端分期准确率高于随机():
                              y_train[p[start:start + 32]], lr=0.3)
 
     acc = model.accuracy(X_test, y_test)
-    assert acc > 0.6   # 随机猜 25%，能到 60%+ 才说明「打通」真有用
+    assert acc > 0.6   # random guess 25%; reaching 60%+ shows the "wiring" really works
 
 
-def test_整夜分期kappa高于随机():
-    """对一整夜端到端分期，κ 应远超随机（0 附近）。"""
+def test_full_night_staging_kappa_above_random():
+    """Staging a full night end to end, κ should far exceed random (near 0)."""
     from mlp import TinyMLP
 
-    # 训练一个小模型
+    # train a small model
     X, y = sp.extract_dataset(n_nights=4, n_epochs=120, seed=42)
     X_scaled, mean, std = standardize(X)
     rng = np.random.default_rng(42)
@@ -137,7 +137,7 @@ def test_整夜分期kappa高于随机():
             model.train_step(X_scaled[p[start:start + 32]],
                              y[p[start:start + 32]], lr=0.3)
 
-    # 对一整夜分期
+    # stage a full night
     signal, y_night, _ = sp.simulate_night_signal(240, seed=999)
     preds = sp.stage_from_signal(signal, model, mean, std)
     kappa = cohens_kappa(y_night, preds, 4)

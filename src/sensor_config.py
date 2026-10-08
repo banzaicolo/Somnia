@@ -2,31 +2,33 @@
 # -*- coding: utf-8 -*-
 """
 =============================================================================
-集中配置模块 —— 所有"可调的旋钮"和公共函数都放在这一个文件里
+Central configuration module — all "adjustable knobs" and shared functions live here
 =============================================================================
 
-【为什么要有这个文件？】
+[Why does this file exist?]
 
-原来三个脚本（压力模拟器 / 零点校准 / 人形证明）各自复制了一份
-一模一样的"网格尺寸"、"身体部位"、"理想体压公式"。
+Originally three scripts (pressure simulator / zero calibration / body-shape proof)
+each copied the same "grid size", "body parts", and "ideal pressure formula".
 
-这有个大毛病：你想改一下身体部位（比如肩膀加宽），得三个文件各改一遍，
-漏改一个就乱套了 —— 三份"标准答案"对不上。
+That had a big problem: if you want to change a body part (e.g. widen the shoulders),
+you'd have to edit three files, and miss one and everything falls apart — the three
+"ground truths" wouldn't match.
 
-现在把它们抽到这个文件，三个脚本统一从这里拿。**改一次，三处生效。**
-这就是软件工程里常说的「单一数据源」（Single Source of Truth）。
+Now they're pulled into this file, and all three scripts read from here. **Change
+once, takes effect in three places.** This is what software engineering calls a
+"Single Source of Truth".
 
-【怎么用？】
+[How to use it?]
 
-在别的脚本里这样写：
+In other scripts write:
 
     import sensor_config as cfg
     ideal = cfg.make_ideal_pressure(cfg.GRID_W, cfg.GRID_H, cfg.BODY_PARTS)
 
-想临时覆盖某个参数（比如某个脚本想要更夸张的温漂），直接在本脚本里
-重新赋值即可，不会影响别的脚本：
+To temporarily override a parameter (e.g. a script wants a more exaggerated temp
+drift), just reassign it in that script; it won't affect the others:
 
-    cfg.TEMP_DRIFT = 30   # 只在本脚本生效
+    cfg.TEMP_DRIFT = 30   # takes effect only in this script
 
 =============================================================================
 """
@@ -35,143 +37,145 @@ import numpy as np
 
 
 # ============================================================================
-# 一、传感器阵列尺寸
+# 1. Sensor array size
 # ============================================================================
-GRID_W = 12   # 横向有多少个感应点（列）
-GRID_H = 8    # 纵向有多少个感应点（行）
-              # 12×8 = 96 个点，跟边缘主控骨架里的 96 个点正好对上
+GRID_W = 12   # how many sensing points horizontally (columns)
+GRID_H = 8    # how many sensing points vertically (rows)
+              # 12×8 = 96 points, matching the 96 points in the edge control backbone
 
 
 # ============================================================================
-# 二、人体各部位的压力参数
+# 2. Pressure parameters of each body part
 # ============================================================================
-# 人仰卧时不是全身均匀压下去，而是几个"凸起的部位"压得最重：
-# 头、肩胛、屁股、脚后跟。每个部位用一座"高斯椭圆"模拟——
-# 高斯椭圆就是"中间高、四周慢慢变矮"的小鼓包，跟真实压力分布很像。
-# 参数顺序：(名字, 中心列x, 中心行y, 宽sx, 高sy, 峰值压力, 旋转角度)
-# 注意 y 从上往下：y 越小越靠床头（头），越大越靠床尾（脚跟）。
+# When a person lies supine, the body doesn't press evenly — a few "protruding parts"
+# press hardest: head, shoulder blades, hips, heels. Each part is modeled as a
+# "Gaussian ellipse" — a bump that's high in the middle and tapers off around the
+# edges, very close to the real pressure distribution.
+# Parameter order: (name, center col x, center row y, width sx, height sy, peak pressure, rotation angle)
+# Note y goes top-down: smaller y is closer to the head of the bed (head), larger y closer to the foot (heels).
 BODY_PARTS = [
-    ("头部",   5.5, 1.0, 1.8, 1.0, 35, 0),   # 最上头，压力最小
-    ("肩胛",   5.5, 3.0, 2.6, 1.6, 80, 0),   # 肩膀，压力中等
-    ("臀部",   5.5, 5.3, 2.8, 1.8, 110, 0),  # 屁股，全场最重
-    ("脚后跟", 5.5, 7.2, 1.4, 0.7, 30, 0),   # 最下头，压力最小
+    ("Head",      5.5, 1.0, 1.8, 1.0, 35, 0),   # topmost, least pressure
+    ("Shoulders", 5.5, 3.0, 2.6, 1.6, 80, 0),   # shoulders, medium pressure
+    ("Hips",      5.5, 5.3, 2.8, 1.8, 110, 0),  # hips, heaviest of all
+    ("Heels",     5.5, 7.2, 1.4, 0.7, 30, 0),   # bottommost, least pressure
 ]
 
 
 # ============================================================================
-# 二点五、三种睡姿（给「睡姿分类」用的数据来源）
+# 2.5. Three sleeping postures (data source for "posture classification")
 # ============================================================================
-# 三种最典型的睡姿，每种是"身体部位列表"，格式跟 BODY_PARTS 一样：
-#   (名字, 中心列x, 中心行y, 宽sx, 高sy, 峰值压力, 旋转角度)
+# The three most typical postures, each a "list of body parts" in the same format
+# as BODY_PARTS:
+#   (name, center col x, center row y, width sx, height sy, peak pressure, rotation angle)
 #
-# 为什么要区分睡姿？看它们压力图的特征就懂了：
-#   仰卧：所有部位都在中轴线上（左右对称），屁股最重
-#   侧卧：所有部位偏向一边（x=9），肩和髋变成"点接触"，压力反而最大
-#   俯卧：趴着，胸口腹部大面积贴床，压力摊薄了（峰值不高但面积大）
+# Why distinguish postures? Look at the features of their pressure maps:
+#   supine: all parts on the center axis (left-right symmetric), hips heaviest
+#   side:   all parts shifted to one side (x=9), shoulder and hip become "point contacts", pressure is actually highest
+#   prone:  lying face down, chest/abdomen touch the bed over a large area, pressure is spread thin (lower peak but larger area)
 POSES = {
-    "supine": [   # 仰卧（脸朝天）
-        ("头部",   5.5, 1.0, 1.8, 1.0, 35, 0),
-        ("肩胛",   5.5, 3.0, 2.6, 1.6, 80, 0),
-        ("臀部",   5.5, 5.3, 2.8, 1.8, 110, 0),
-        ("脚后跟", 5.5, 7.2, 1.4, 0.7, 30, 0),
+    "supine": [   # supine (face up)
+        ("Head",      5.5, 1.0, 1.8, 1.0, 35, 0),
+        ("Shoulders", 5.5, 3.0, 2.6, 1.6, 80, 0),
+        ("Hips",      5.5, 5.3, 2.8, 1.8, 110, 0),
+        ("Heels",     5.5, 7.2, 1.4, 0.7, 30, 0),
     ],
-    "side": [     # 侧卧（朝右侧躺，全部部位偏到 x=9 一侧）
-        ("头部",   9.0, 1.0, 1.6, 1.0, 45, 0),
-        ("肩部",   9.0, 3.0, 2.0, 1.4, 120, 0),   # 点接触 → 压力大
-        ("髋部",   9.0, 5.5, 2.2, 1.5, 130, 0),   # 点接触 → 全场最重
-        ("腿部",   9.0, 7.3, 1.8, 1.0, 60, 0),
+    "side": [     # side (lying on the right side, all parts shifted to the x=9 side)
+        ("Head",     9.0, 1.0, 1.6, 1.0, 45, 0),
+        ("Shoulder", 9.0, 3.0, 2.0, 1.4, 120, 0),   # point contact -> high pressure
+        ("Hip",      9.0, 5.5, 2.2, 1.5, 130, 0),   # point contact -> heaviest of all
+        ("Legs",     9.0, 7.3, 1.8, 1.0, 60, 0),
     ],
-    "prone": [    # 俯卧（趴着睡，头歪向一边）
-        ("头部",   4.5, 0.8, 1.6, 1.0, 40, 0),
-        ("胸腹",   5.5, 3.5, 3.2, 2.2, 70, 0),    # 大面积贴床 → 压力摊薄
-        ("大腿",   5.5, 5.5, 2.6, 1.4, 60, 0),
-        ("脚背",   5.5, 7.5, 2.0, 0.8, 25, 0),
+    "prone": [    # prone (lying face down, head turned to one side)
+        ("Head",   4.5, 0.8, 1.6, 1.0, 40, 0),
+        ("Chest",  5.5, 3.5, 3.2, 2.2, 70, 0),    # large contact area -> pressure spread thin
+        ("Thighs", 5.5, 5.5, 2.6, 1.4, 60, 0),
+        ("Feet",   5.5, 7.5, 2.0, 0.8, 25, 0),
     ],
 }
 
-# 睡姿分类用的标签列表（顺序固定，训练和预测都用这个顺序对应编号）
+# label list for posture classification (fixed order; training and prediction both map indices with this order)
 POSE_NAMES = ["supine", "side", "prone"]
-POSE_LABELS_CN = {"supine": "仰卧", "side": "侧卧", "prone": "俯卧"}
+POSE_LABELS_CN = {"supine": "Supine", "side": "Side", "prone": "Prone"}
 
 
 # ============================================================================
-# 三、传感器"毛病"的强度（每种都能单独调，看它单独会造成什么）
+# 3. Strength of each sensor "fault" (each can be tuned alone to see what it alone causes)
 # ============================================================================
 
-# 毛病① 批次不一致：同一批传感器，每个灵敏度不一样（15% = 0.15）
+# fault ① batch mismatch: within one batch of sensors each sensitivity differs (15% = 0.15)
 SENS_GAIN_STD = 0.15
 
-# 毛病② 温漂：温度一变，基线整体偏移。越大抬得越狠
+# fault ② temp drift: when temperature changes, the whole baseline shifts. Bigger = lifted more
 TEMP_DRIFT = 12
 
-# 毛病③ 零点漂移：用久了每个点慢慢"自己偏了"，模拟随机偏 0~8
+# fault ③ zero drift: over time each point slowly "drifts on its own", simulated as random 0~8
 ZERO_DRIFT_MAX = 8
 
-# 毛病④ 噪声：随机小抖动，像老电视雪花
+# fault ④ noise: small random jitter, like old TV static
 NOISE_STD = 3
 
-# 毛病⑤ 串扰：相邻点互相"漏电"，0.1 表示 10% 漏给邻居
+# fault ⑤ crosstalk: adjacent points "leak" into each other; 0.1 means 10% leaks to neighbors
 CROSSTALK = 0.10
 
-# 迟滞回线宽度：加压和减压之间能差多少（图2 用，也是迟滞补偿的正向/反向共用参数）
+# hysteresis loop width: how much loading and unloading can differ (for figure 2; also the shared forward/reverse parameter of hysteresis compensation)
 HYSTERESIS = 8
 
 
 # ============================================================================
-# 四、输出设置（不再写死，想改只改这里）
+# 4. Output settings (no longer hard-coded; change only here)
 # ============================================================================
-OUT_DIR = "outputs"   # 图和 csv 存到哪个文件夹
-SEED = 42             # 随机种子：固定它，每次跑结果一样，方便对比
+OUT_DIR = "outputs"   # which folder to save figures and csv to
+SEED = 42             # random seed: fixed so every run gives the same result, easy to compare
 
-# 输出文件名（用英文，跨平台、上 GitHub 都不会出乱码）
-FILE_IMPERFECTIONS = "imperfections.png"       # 图1：四宫格毛病叠加
-FILE_HYSTERESIS = "hysteresis_curve.png"       # 图2：迟滞回线
-FILE_IDEAL_CSV = "ideal_pressure.csv"          # 标准答案
-FILE_RAW_CSV = "sensor_readings.csv"           # 脏数据（标定算法的输入）
-FILE_ZERO_CAL = "zero_calibration.png"         # 零点校准对比
-FILE_BODY_PROOF = "body_shape_proof.png"       # 人形证明图
-FILE_HYSTERESIS_COMP = "hysteresis_compensation.png"   # 迟滞自动补偿对比图
-FILE_BED_MONITOR = "bed_monitor.png"                   # 离床检测状态时间线
-FILE_BCG = "bcg_monitor.png"                           # BCG 呼吸/心跳监测图
-FILE_SLEEP_PIPELINE = "sleep_pipeline.png"             # 信号→特征→分期 打通演示图
-FILE_PUPU_REAL = "pupu_real_poses.png"                 # PoPu 真实数据可视化（校准前后对比）
-FILE_PUPU_TRAINING = "pupu_training.png"               # 真实数据训练（损失曲线+混淆矩阵）
+# output filenames (English, so cross-platform and GitHub won't get garbled)
+FILE_IMPERFECTIONS = "imperfections.png"       # figure 1: four-panel fault stacking
+FILE_HYSTERESIS = "hysteresis_curve.png"       # figure 2: hysteresis loop
+FILE_IDEAL_CSV = "ideal_pressure.csv"          # ground truth
+FILE_RAW_CSV = "sensor_readings.csv"           # dirty data (input to the calibration algorithm)
+FILE_ZERO_CAL = "zero_calibration.png"         # zero calibration comparison
+FILE_BODY_PROOF = "body_shape_proof.png"       # body-shape proof figure
+FILE_HYSTERESIS_COMP = "hysteresis_compensation.png"   # hysteresis auto-compensation comparison figure
+FILE_BED_MONITOR = "bed_monitor.png"                   # bed-exit detection status timeline
+FILE_BCG = "bcg_monitor.png"                           # BCG respiration/heartbeat monitoring figure
+FILE_SLEEP_PIPELINE = "sleep_pipeline.png"             # signal -> feature -> staging end-to-end demo figure
+FILE_PUPU_REAL = "pupu_real_poses.png"                 # PoPu real data visualization (before/after calibration)
+FILE_PUPU_TRAINING = "pupu_training.png"               # real data training (loss curve + confusion matrix)
 
 
 # ============================================================================
-# 公共函数
+# Shared functions
 # ============================================================================
 
 def make_ideal_pressure(w, h, parts):
     """
-    生成「理想体压图」—— 这是标准答案：人真实压上去应该长这样。
+    Generate the "ideal body-pressure map" — the ground truth: what a person actually pressing should look like.
 
-    做法：把每个身体部位看成一座高斯小鼓包，全部叠在一起。
+    Recipe: treat each body part as a Gaussian bump and stack them all together.
 
-    参数：
-      w, h  —— 阵列宽、高
-      parts —— BODY_PARTS 那个列表
-    返回：一个 h 行 w 列的二维数组（就是一张"图"），数值越大压力越大。
-    本函数【没有任何随机数】，所以人形是固定摆好的，不是随机滚出来的。
+    Args:
+      w, h  -- array width and height
+      parts -- the BODY_PARTS list
+    Returns: a 2D array of h rows by w columns (i.e. an "image"); larger values mean higher pressure.
+    This function [has no random numbers], so the body shape is fixed in place, not randomly generated.
     """
-    # np.mgrid 生成坐标网格。yy 是每个点的"行号"，xx 是"列号"。
+    # np.mgrid generates the coordinate grid. yy is each point's "row index", xx is "column index".
     yy, xx = np.mgrid[0:h, 0:w]
-    img = np.zeros((h, w))   # 先造一张全 0 的图
+    img = np.zeros((h, w))   # start with an all-zero image
 
     for name, cx, cy, sx, sy, amp, ang in parts:
-        # 高斯椭圆的公式：先把坐标平移到"以鼓包中心为原点"
+        # Gaussian ellipse formula: first translate coordinates to "origin at the bump center"
         dx = xx - cx
         dy = yy - cy
 
-        # 如果要转角度，就旋转坐标（这里默认 0 度，等于没转，
-        # 但保留了这行，以后想模拟侧躺、斜躺就能用上）
+        # If a rotation angle is set, rotate the coordinates (default 0 degrees here,
+        # i.e. no rotation, but this line is kept so you can simulate side/reclined lying later)
         a = np.cos(np.radians(ang))
         b = np.sin(np.radians(ang))
         xr = dx * a + dy * b
         yr = -dx * b + dy * a
 
-        # 二维高斯：中心 = amp，往四周按 sx/sy 的尺度衰减
+        # 2D Gaussian: center = amp, decaying outward on the sx/sy scales
         gauss = amp * np.exp(-(xr ** 2 / (2 * sx ** 2) + yr ** 2 / (2 * sy ** 2)))
-        img += gauss   # 叠加上去
+        img += gauss   # stack it on
 
     return img
