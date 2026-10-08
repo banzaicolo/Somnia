@@ -28,4 +28,4 @@ uv.lock
 .workbuddy/
 
 # Internal technical review (self-criticism + internal judgment — never public)
-TECHNICAL_REVIEW.md
+TECHNICAL_REVIEW*.md
