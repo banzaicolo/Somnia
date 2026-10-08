@@ -142,7 +142,7 @@ def main():
     plt.tight_layout(rect=[0, 0, 1, 0.93])
 
     path = os.path.join(OUT_DIR, OUTPUT_NAME)
-    plt.savefig(path, dpi=200, bbox_inches="tight")
+    plt.savefig(path, dpi=300, bbox_inches="tight")
     plt.close(fig)
     print()
     print(f"  ✅ Figure generated: {path}")

@@ -170,7 +170,7 @@ def plot(losses, cm, classes, test_acc, kappa):
 
     plt.tight_layout()
     path = os.path.join(OUT_DIR, FILE_PUPU_TRAINING)
-    plt.savefig(path, dpi=200, bbox_inches="tight")
+    plt.savefig(path, dpi=300, bbox_inches="tight")
     plt.close(fig)
     print(f"\n Figure saved: {path}")
 

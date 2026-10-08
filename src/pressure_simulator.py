@@ -243,7 +243,7 @@ def plot_and_save(steps):
     fig.suptitle("Ideal pressure -> raw sensor reading (brighter = higher pressure)", fontsize=14)
     plt.tight_layout()
     path1 = os.path.join(out_dir, FILE_IMPERFECTIONS)
-    plt.savefig(path1, dpi=200, bbox_inches="tight")
+    plt.savefig(path1, dpi=300, bbox_inches="tight")
     plt.close(fig)
 
     return path1
@@ -270,7 +270,7 @@ def plot_hysteresis():
     ax.grid(True, alpha=0.3)
     plt.tight_layout()
     path2 = os.path.join(out_dir, FILE_HYSTERESIS)
-    plt.savefig(path2, dpi=120, bbox_inches="tight")
+    plt.savefig(path2, dpi=300, bbox_inches="tight")
     plt.close(fig)
 
     return path2

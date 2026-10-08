@@ -177,7 +177,7 @@ def main(n_nights=N_NIGHTS, n_epoch=N_EPOCH, n_hidden=N_HIDDEN,
     plt.tight_layout()
     os.makedirs(OUT_DIR, exist_ok=True)
     path = os.path.join(OUT_DIR, "sleep_pipeline.png")
-    plt.savefig(path, dpi=120, bbox_inches="tight")
+    plt.savefig(path, dpi=300, bbox_inches="tight")
     plt.close(fig)
     print(f"      plot saved to: {path}")
 

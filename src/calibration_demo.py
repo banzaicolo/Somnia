@@ -211,7 +211,7 @@ def plot(ideal, raw, no_temp, cleaned, err_raw, err_no_temp, err_clean):
     fig.suptitle("Full calibration chain: four fixes that recover the truth", fontsize=15)
     plt.tight_layout()
     path = os.path.join(OUT_DIR, "calibration_full.png")
-    plt.savefig(path, dpi=200, bbox_inches="tight")
+    plt.savefig(path, dpi=300, bbox_inches="tight")
     plt.close(fig)
     return path
 
