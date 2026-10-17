@@ -7,7 +7,7 @@
 
 Somnia reads your sleep from a single mattress. No wearables, no cameras, no cloud.
 
-It's a research playground for a flexible pressure-sensor mattress. It simulates dirty sensor data, cleans it up with a calibration pipeline, and builds the first applications on top: sleep posture, bed-exit detection, breathing and heart rate, and sleep staging. The posture classifier is also trained on real data from 60 volunteers (the PoPu dataset), reaching 93.9% accuracy on people it has never seen.
+It's a research playground for a flexible pressure-sensor mattress. It simulates dirty sensor data, cleans it up with a calibration pipeline, and builds the first applications on top: sleep posture, bed-exit detection, breathing and heart rate, and sleep staging. The posture classifier is also trained on real data from 60 volunteers (the PoPu dataset), reaching 96.0% ± 1.5 accuracy across five independent splits by people it has never seen.
 
 ![Five simulated sensor defects](assets/sensor_imperfections.png)
 
@@ -55,8 +55,11 @@ The posture classifier also trains on [PoPu-Data](https://github.com/rdionisio14
 
 | Evaluation | Accuracy | Meaning |
 |---|---|---|
-| Random split | 98.3% | The model has partly seen the person before |
-| By volunteer | 93.9% | Test people were never in training — the number that matters |
+| Random split | 99.5% | The model has partly seen the person before — inflated |
+| **By volunteer (5 splits)** | **96.0% ± 1.5** | Test people were never in training — the number that matters |
+| Random guessing | 25.0% | Baseline for four balanced classes |
+
+Cohen's κ is 0.947 ± 0.020 across the five by-volunteer splits. Training uses all 10 frames per recording plus a left/right mirror augmentation: flipping a side-lying pressure map and swapping the left ↔ right label teaches the model the physical symmetry instead of making it memorise each side separately.
 
 ![Posture training on real data](assets/pupu_training.png)
 
@@ -68,6 +71,15 @@ python src/download_pupu.py full
 ```
 
 ![End-to-end pipeline](assets/sleep_pipeline.png)
+
+## Evaluation protocol
+
+Which numbers to trust, and why:
+
+- test sets are split by **volunteer**, never by frame — frames from the same recording are highly correlated, so a frame-level split leaks information and inflates accuracy;
+- the normalisation constant is a fixed global value, not computed from the test set;
+- each volunteer's zero baseline comes from that volunteer's own empty-bed recording;
+- the headline number is the mean and spread over five independent by-volunteer splits, not a single lucky split.
 
 ## Tests
 

@@ -268,3 +268,45 @@ def split_by_volunteer(X, y, meta, test_ratio=0.2, seed=0):
     te = np.array([v in test_v for v in vol])
     tr = ~te
     return X[tr], y[tr], X[te], y[te]
+
+
+def mirror_augment(X, y, classes, shuffle=True, seed=0):
+    """
+    Horizontal-flip augmentation: left and right side-lying are mirror images.
+
+    A person lying on their left and the same person lying on their right produce
+    pressure maps that are horizontally mirrored. Flipping a map therefore yields
+    a physically valid new sample, as long as the label is swapped accordingly
+    (left <-> right); supine and prone stay unchanged.
+
+    Args:
+      X       —— (N, 72) flattened pressure maps (12 rows x 6 cols, row-major)
+      y       —— (N,) class ids
+      classes —— class-name list, e.g. ["supine","left","right","prone"]
+
+    Returns:
+      X_all, y_all —— twice the samples (original + mirrored)
+
+    Note: PoPu maps are stored row-major (6 values per row), so we reshape to
+    (N, 12, 6) and flip the last axis. Flipping the wrong axis would rotate the
+    body instead of mirroring it.
+    """
+    X = np.asarray(X, dtype=float)
+    y = np.asarray(y, dtype=int)
+    n = len(X)
+
+    flipped = X.reshape(n, GRID_ROWS, GRID_COLS)[:, :, ::-1].reshape(n, -1)
+
+    left, right = classes.index("left"), classes.index("right")
+    swap = {left: right, right: left}
+    y_flipped = np.array([swap.get(int(label), int(label)) for label in y], dtype=int)
+
+    X_all = np.vstack([X, flipped])
+    y_all = np.concatenate([y, y_flipped])
+
+    if shuffle:
+        rng = np.random.default_rng(seed)
+        idx = rng.permutation(len(X_all))
+        X_all, y_all = X_all[idx], y_all[idx]
+
+    return X_all, y_all

@@ -3,6 +3,6 @@ message: "If you use this project in your research, please cite it as follows."
 title: "Somnia: A No-Hardware Playground for Pressure-Sensor Simulation and Calibration"
 authors:
   - name: "Somnia Contributors"
-version: 0.1.0
+version: 0.2.0
 date-released: "2026-10-06"
 license: MIT

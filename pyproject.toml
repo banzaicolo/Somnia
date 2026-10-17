@@ -11,7 +11,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "somnia"
 version = "0.2.0"
-description = "No-hardware playground for flexible pressure-sensor simulation, calibration and edge deployment (AI medical-bed starter kit)"
+description = "Somnia: no-hardware playground for flexible pressure-sensor simulation, calibration and edge deployment"
 readme = "README.md"
 requires-python = ">=3.9"
 license = { text = "MIT" }

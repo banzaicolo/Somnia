@@ -53,10 +53,12 @@ from sensor_config import OUT_DIR, FILE_PUPU_TRAINING
 
 # ---- Training hyperparameters (same order of magnitude as the synthetic version, for a fair comparison) ----
 N_HIDDEN = 32
-N_EPOCH = 150
+N_EPOCH = 100
 BATCH = 32
 LR = 0.3
 SEED = 0
+FRAMES_PER_FILE = 10   # use every frame in each JSON file (10x the samples)
+N_REPEAT = 5           # repeat the by-volunteer split with different seeds
 
 
 def train_model(X_train, y_train, n_classes, n_hidden, n_epoch, batch, lr, seed):
@@ -89,34 +91,60 @@ def evaluate(model, X_test, y_test, classes):
     return acc, kappa, cm
 
 
-def main(n_hidden=N_HIDDEN, n_epoch=N_EPOCH, batch=BATCH, lr=LR, seed=SEED):
+def main(n_hidden=N_HIDDEN, n_epoch=N_EPOCH, batch=BATCH, lr=LR, seed=SEED,
+         frames_per_file=FRAMES_PER_FILE, n_repeat=N_REPEAT):
     print("=" * 62)
     print(" Real-data training: PoPu 60 people × 4 poses (supine/left side/right side/prone)")
     print("=" * 62)
     print()
 
-    # ---- 1. Load the real data ----
-    X, y, classes, meta = pl.load_dataset(seed=seed)
-    print(f"[1/4] Data loaded: {len(X)} real samples, {np.bincount(y)[0]} per class")
+    # ---- 1. Load the real data (every frame, not just the first) ----
+    X, y, classes, meta = pl.load_dataset(seed=seed, frames_per_file=frames_per_file)
+    print(f"[1/5] Data loaded: {len(X)} real samples, {np.bincount(y)[0]} per class")
 
-    # ---- 2. Exam 1 random split (model may have "seen the person") ----
+    # ---- 1b. Mirror augmentation: a left-side map flipped is a right-side map ----
+    # shuffle=False is essential: meta is concatenated below, and if X/y were
+    # permuted here the volunteer ids would no longer line up, silently breaking
+    # the by-volunteer split (and inflating the score through leakage).
+    X, y = pl.mirror_augment(X, y, classes, shuffle=False)
+    meta = meta + meta                      # keep metadata aligned with the doubled set
+    print(f"      after left/right mirror augmentation: {len(X)} samples")
+
+    # ---- 2. Exam 1: random split (model may have "seen the person") ----
     Xtr1, ytr1, Xte1, yte1 = pl.split_train_test(X, y, seed=seed)
     m1, losses1, _ = train_model(Xtr1, ytr1, len(classes),
                                  n_hidden, n_epoch, batch, lr, seed)
     acc1, kappa1, _ = evaluate(m1, Xte1, yte1, classes)
-    print(f"[2/4] Exam 1 random split (model has seen the person): accuracy {acc1*100:.1f}%, κ={kappa1:.3f}")
+    print(f"[2/5] Exam 1 random split (model has seen the person): accuracy {acc1*100:.1f}%, κ={kappa1:.3f}")
 
-    # ---- 3. Exam 2 split by person (test set is all strangers) — the headline number ----
-    Xtr2, ytr2, Xte2, yte2 = pl.split_by_volunteer(X, y, meta, seed=seed)
-    n_train_v = len(set(m["volunteer_id"] for m in meta)) - 12   # number of training people
-    m2, losses2, _ = train_model(Xtr2, ytr2, len(classes),
-                                 n_hidden, n_epoch, batch, lr, seed)
-    acc2, kappa2, cm = evaluate(m2, Xte2, yte2, classes)
-    print(f"[3/4] Exam 2 split by person (test is all strangers): accuracy {acc2*100:.1f}%, κ={kappa2:.3f}")
-    print(f"      (trained on {n_train_v} people, tested on 12 unseen strangers, {len(Xte2)} samples total)")
+    # ---- 3. Exam 2: repeat the by-volunteer split with different seeds ----
+    # One split can land anywhere between ~91% and ~98% by luck, so report the
+    # mean and spread over several independent splits instead of a single point.
+    accs, kappas = [], []
+    acc_at_seed = kappa_at_seed = cm = losses2 = None
+    for repeat in range(n_repeat):
+        Xtr2, ytr2, Xte2, yte2 = pl.split_by_volunteer(X, y, meta, seed=repeat)
+        m2, run_losses, _ = train_model(Xtr2, ytr2, len(classes),
+                                        n_hidden, n_epoch, batch, lr, repeat)
+        run_acc, run_kappa, run_cm = evaluate(m2, Xte2, yte2, classes)
+        accs.append(run_acc)
+        kappas.append(run_kappa)
+        if repeat == seed or cm is None:
+            acc_at_seed, kappa_at_seed = run_acc, run_kappa
+            cm, losses2 = run_cm, run_losses
 
-    # ---- 4. Confusion matrix + per-class accuracy (based on Exam 2) ----
-    print(f"[4/4] Confusion matrix on the stranger exam (row = true, column = predicted):")
+    accs = np.array(accs)
+    kappas = np.array(kappas)
+    n_train_v = len(set(m["volunteer_id"] for m in meta[:len(meta) // 2])) - 12
+    print(f"[3/5] Exam 2 by person, {n_repeat} independent splits "
+          f"(test is always unseen strangers): "
+          f"accuracy {accs.mean()*100:.1f}% ± {accs.std()*100:.1f}, "
+          f"κ={kappas.mean():.3f} ± {kappas.std():.3f}")
+    print(f"      per-split accuracy: " + ", ".join(f"{a*100:.1f}%" for a in accs))
+    print(f"      (trained on {n_train_v} people, tested on 12 unseen strangers per split)")
+
+    # ---- 4. Confusion matrix + per-class accuracy (one representative split) ----
+    print(f"[4/5] Confusion matrix on the stranger exam (row = true, column = predicted):")
     print()
     print("      Per-class accuracy:")
     for i, cls in enumerate(classes):
@@ -134,15 +162,17 @@ def main(n_hidden=N_HIDDEN, n_epoch=N_EPOCH, batch=BATCH, lr=LR, seed=SEED):
     print("      ── Honest interpretation (facts of this run, not polite filler) ──")
     print(f"      · Synthetic data (math-generated): 3 classes 100% — only proves the algorithm logic is right")
     print(f"      · Real · seen the person: {acc1*100:.1f}% — contains the 'memorized the user' inflation")
-    print(f"      · Real · stranger: {acc2*100:.1f}% — a new user buys it and uses it right away; this is the real performance")
+    print(f"      · Real · stranger ({n_repeat} splits): {accs.mean()*100:.1f}% ± {accs.std()*100:.1f} "
+          f"— a new user buys it and uses it right away; this is the real performance")
     print(f"      · The gap between the two = the inflation from the model 'remembering old users';")
     print(f"        in the README and all public claims, always use the stranger number.")
 
-    plot(losses2, cm, classes, acc2, kappa2)
-    return acc2, kappa2
+    plot(losses2, cm, classes, acc_at_seed, kappa_at_seed,
+         mean_acc=float(accs.mean()), mean_std=float(accs.std()))
+    return float(accs.mean()), float(kappas.mean())
 
 
-def plot(losses, cm, classes, test_acc, kappa):
+def plot(losses, cm, classes, test_acc, kappa, mean_acc=None, mean_std=None):
     os.makedirs(OUT_DIR, exist_ok=True)
     fig, axes = plt.subplots(1, 2, figsize=(13, 5))
 
@@ -162,7 +192,11 @@ def plot(losses, cm, classes, test_acc, kappa):
     ax.set_yticklabels([pl.POSE_LABELS_EN[c] for c in classes])
     ax.set_xlabel("Predicted")
     ax.set_ylabel("True pose")
-    ax.set_title(f"Unseen volunteers (accuracy {test_acc*100:.1f}%, kappa {kappa:.3f})")
+    title = f"One split: accuracy {test_acc*100:.1f}%, kappa {kappa:.3f}"
+    if mean_acc is not None and mean_std is not None:
+        # Show both so the figure cannot be mistaken for the headline number.
+        title += f"\n5-split mean: {mean_acc*100:.1f}% ± {mean_std*100:.1f}"
+    ax.set_title(title, fontsize=11)
     for i in range(len(classes)):
         for j in range(len(classes)):
             ax.text(j, i, str(cm[i, j]), ha="center", va="center",
@@ -182,8 +216,13 @@ if __name__ == "__main__":
     parser.add_argument("--batch", type=int, default=BATCH)
     parser.add_argument("--lr", type=float, default=LR)
     parser.add_argument("--seed", type=int, default=SEED)
+    parser.add_argument("--frames", type=int, default=FRAMES_PER_FILE,
+                        help="frames per JSON file (default: all 10)")
+    parser.add_argument("--repeats", type=int, default=N_REPEAT,
+                        help="independent by-volunteer splits to average over")
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO,
                         format="[%(asctime)s] %(message)s", datefmt="%H:%M:%S")
-    main(n_epoch=args.epochs, batch=args.batch, lr=args.lr, seed=args.seed)
+    main(n_epoch=args.epochs, batch=args.batch, lr=args.lr, seed=args.seed,
+         frames_per_file=args.frames, n_repeat=args.repeats)
