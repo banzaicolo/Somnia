@@ -18,14 +18,14 @@ BCG requires wearing nothing — just lie down, and the sensor under the mattres
 
 What can and can't it measure? (the honest boundary)
 
-  ~ breathing rate — can be stably extracted on synthesized signals, but real-world
-              performance has NOT been verified. Only pure mathematically-generated
-              sine signals have been tested so far, which is "grading your own
-              homework" and must not be treated as evidence of real performance.
-  ~ heart rate — can be extracted on synthesized signals, but in real signals the
-              "echo" of breathing (harmonics) falls into the heartbeat band and
-              biases the heart rate. Fixing this requires harmonic removal first,
-              or counting heartbeat peaks directly in the time domain (neither done yet).
+  ~ breathing rate — stably extracted on synthesized signals (both pure sine and
+              asymmetric, harmonic-rich breathing). Real-mattress accuracy is still
+              unverified (no synchronized reference data yet).
+  ~ heart rate — extracted with respiration-harmonic removal: locate the breathing rate,
+              knock out its harmonics that fall into the heartbeat band, then pick the
+              remaining peak. Verified on asymmetric (harmonic-rich) synthesized signals:
+              it recovers 72 beats/min where the naive method reads 45. Real-mattress
+              accuracy is still unverified (no synchronized ECG reference yet).
   ✅ apnea — judged by "relative drop in breathing-band energy"; the logic holds,
               and it has passed verification on synthesized signals.
   ❌ blood oxygen (SpO2) — physically impossible to measure. Blood oxygen requires
@@ -35,10 +35,14 @@ What can and can't it measure? (the honest boundary)
 
 This module's verification status (stated clearly, no ambiguity):
 
-  · Verified: the "split by frequency" logic is correct on synthesized signals
-  · Not verified: the error range on real mattress signals (missing synchronized ECG / breathing-belt reference data)
-  · Known failure scenario: when the breathing waveform has harmonics, the heart rate
-    can lock onto the 3rd harmonic of breathing
+  · Verified: breathing-rate and heart-rate extraction on synthesized signals, including
+    asymmetric breathing whose harmonics leak into the heartbeat band (harmonic removal
+    recovers 72 beats/min where the naive method reads 45).
+  · Not verified: the error range on real mattress signals (missing synchronized ECG /
+    breathing-belt reference data).
+  · Known limitation: when the heart rate happens to be an integer multiple of the
+    breathing rate (e.g. 60 bpm = 4 × 15 breaths/min), the heartbeat lands exactly on a
+    breathing harmonic and no frequency-domain method can separate the two.
 
 Core principle: one signal contains three mixed "rhythms"
 
@@ -89,7 +93,7 @@ HR_HIGH = 3.0     # heartbeat band upper bound: 3.0 Hz = 180 beats/min (infant, 
 # ============================================================================
 
 def simulate_bcg(duration_sec=60.0, fs=FS, resp_rate=15.0, heart_rate=72.0,
-                 noise_std=0.05, apnea=None, seed=42):
+                 noise_std=0.05, apnea=None, resp_asymmetry=0.0, seed=42):
     """
     Synthesize a mattress pressure signal: static body pressure + breathing + heartbeat + noise.
 
@@ -107,6 +111,11 @@ def simulate_bcg(duration_sec=60.0, fs=FS, resp_rate=15.0, heart_rate=72.0,
       apnea        — optional (start_sec, end_sec), marking a "breathing pause" interval
                      (breathing amplitude drops to 0, but the heartbeat keeps going —
                      apnea ≠ cardiac arrest). Default None = normal breathing throughout.
+      resp_asymmetry — how asymmetric the breathing waveform is, from 0.0 to 1.0.
+                     0.0 = a pure sine wave (no harmonics — the "grading your own homework"
+                     idealization). 1.0 = a sawtooth-like "sharp inhale, slow exhale" shape
+                     whose harmonics leak into the heartbeat band. Real breathing is
+                     asymmetric, so use 1.0 to test the harmonic-removal path honestly.
       seed         — random seed; fix it and results are the same every time, for easy comparison
 
     Returns:
@@ -122,7 +131,16 @@ def simulate_bcg(duration_sec=60.0, fs=FS, resp_rate=15.0, heart_rate=72.0,
 
     baseline = 100.0               # static body pressure (DC), representing the person's weight
     # breathing has a large amplitude (obvious chest rise), heartbeat a small one (about 1/10 of breathing)
-    respiration = 5.0 * np.sin(2 * np.pi * resp_freq * t)
+    theta = 2 * np.pi * resp_freq * t
+    if resp_asymmetry <= 0.0:
+        respiration = 5.0 * np.sin(theta)
+    else:
+        # A sawtooth-like shape: sharp inhale, slow exhale. Its Fourier series carries
+        # harmonics at 2x, 3x, 4x... the breathing rate, which is exactly what real
+        # breathing does (unlike a pure sine). Blend between pure sine (0.0) and full
+        # sawtooth (1.0) so callers can dial in how "real" the test is.
+        saw = _sawtooth(theta)
+        respiration = 5.0 * ((1.0 - resp_asymmetry) * np.sin(theta) + resp_asymmetry * saw)
     heartbeat = 0.5 * np.sin(2 * np.pi * hr_freq * t)
 
     # apnea: squeeze the breathing amplitude to 0 over [start, end)
@@ -135,6 +153,34 @@ def simulate_bcg(duration_sec=60.0, fs=FS, resp_rate=15.0, heart_rate=72.0,
 
     signal = baseline + respiration + heartbeat + noise
     return t, signal
+
+
+def _sawtooth(theta, n_harmonics=8):
+    """
+    A normalized sawtooth wave in [-1, 1], built from its Fourier series.
+
+    A sawtooth is the canonical "asymmetric" waveform: it rises slowly (or sharply) and
+    snaps back, so unlike a pure sine it contains harmonics at 2x, 3x, 4x... the base
+    frequency. Real breathing is asymmetric ("sharp inhale, slow exhale"), so modeling it
+    as a sawtooth (instead of a sine) injects the harmonics that a naive heart-rate
+    extractor will mistakenly lock onto.
+
+    The Fourier series of a sawtooth is  sum_k (-1)^(k-1) sin(k·theta) / k.
+    We keep the first n_harmonics terms (8 is plenty — higher terms are tiny) and rescale
+    by 2/pi so the peak amplitude lands near 1.0.
+
+    Parameters:
+      theta        — phase angle(s) in radians (array or scalar)
+      n_harmonics  — how many Fourier terms to keep
+
+    Returns:
+      sawtooth values in roughly [-1, 1]
+    """
+    theta = np.asarray(theta, dtype=float)
+    wave = np.zeros_like(theta)
+    for k in range(1, n_harmonics + 1):
+        wave += ((-1) ** (k - 1)) * np.sin(k * theta) / k
+    return wave * (2.0 / np.pi)
 
 
 # ============================================================================
@@ -217,12 +263,16 @@ def estimate_breathing_rate(signal, fs=FS):
     return peak_hz * 60.0
 
 
-def estimate_heart_rate(signal, fs=FS):
+def estimate_heart_rate_naive(signal, fs=FS):
     """
-    Estimate the heart rate (beats/min).
+    Estimate the heart rate the "naive" way: find the strongest frequency in the
+    heartbeat band (0.7~3.0 Hz) and ×60.
 
-    How: heartbeat is high-frequency micro-vibration, so find the strongest frequency
-    in the "heartbeat band" (0.7~3.0 Hz), then ×60 to convert to "counts per minute".
+    This is kept as a separate function on purpose — it is the buggy baseline. When the
+    breathing waveform is asymmetric, its harmonics fall into the heartbeat band and are
+    often stronger than the real heartbeat, so this function locks onto a breathing echo
+    (e.g. reports ~45 beats/min when the true rate is 72). Compare it against
+    estimate_heart_rate(), which removes those echoes first.
 
     Parameters:
       signal — mattress pressure signal
@@ -233,6 +283,73 @@ def estimate_heart_rate(signal, fs=FS):
     """
     peak_hz = _dominant_freq(signal, fs, HR_LOW, HR_HIGH)
     return peak_hz * 60.0
+
+
+def estimate_heart_rate(signal, fs=FS):
+    """
+    Estimate the heart rate (beats/min) with respiration-harmonic removal.
+
+    Why the extra step: real breathing is asymmetric, so its spectrum carries "echoes"
+    (harmonics) at 2x, 3x, 4x... the breathing rate. Those echoes land inside the
+    heartbeat band, and because breathing is much stronger than the heartbeat, they can
+    out-shout the true heartbeat peak. The naive method then locks onto a breathing echo
+    instead of the heart.
+
+    Fix: first locate the breathing rate reliably (its peak is large, so this is easy and
+    trustworthy). Then check whether the naive heartbeat-band peak actually sits on a
+    respiration harmonic (k × breathing rate, k ≥ 2). Only if it does do we knock out the
+    in-band harmonics and pick the strongest survivor; if the naive peak is not on a
+    harmonic, it is the real heartbeat and is returned directly.
+
+    Parameters:
+      signal — mattress pressure signal
+      fs     — sampling rate
+
+    Returns:
+      heart rate (beats/min, float)
+    """
+    # 1. Locate the breathing rate. Its peak is large, so this estimate is trustworthy.
+    f_resp = _dominant_freq(signal, fs, RESP_LOW, RESP_HIGH)
+    if f_resp <= 0.0:
+        # No breathing detected — nothing to remove, fall back to the naive lookup.
+        return estimate_heart_rate_naive(signal, fs)
+
+    n = len(signal)
+    df = fs / n  # frequency resolution of this FFT
+    f_naive = _dominant_freq(signal, fs, HR_LOW, HR_HIGH)
+
+    # 2. Is the naive peak actually a respiration harmonic? If it does NOT sit on
+    #    k * f_resp (k >= 2), it is the real heartbeat and there is nothing to remove —
+    #    return it directly. Only when the naive peak sits exactly on a harmonic has the
+    #    naive method locked onto a breathing echo, so we must remove the echoes and look
+    #    again for the heartbeat underneath.
+    k_nearest = int(round(f_naive / f_resp))
+    if k_nearest < 2 or abs(f_naive - k_nearest * f_resp) >= 0.5 * df:
+        return f_naive * 60.0
+
+    # 3. Remove every in-band respiration harmonic, then find the strongest survivor.
+    spectrum = np.abs(np.fft.rfft(signal))
+    freqs = np.fft.rfftfreq(n, d=1.0 / fs)
+    cleaned = spectrum.copy()
+    k = 2
+    while k * f_resp <= HR_HIGH:
+        f_harm = k * f_resp
+        if f_harm >= HR_LOW:
+            cleaned[np.abs(freqs - f_harm) < 1.0 * df] = 0.0
+        k += 1
+
+    band = (freqs >= HR_LOW) & (freqs <= HR_HIGH)
+    if cleaned[band].max() <= 0.0:
+        # We removed everything in the band — fall back rather than report 0.
+        return estimate_heart_rate_naive(signal, fs)
+    # Guard: if removing the harmonics collapsed the band's peak almost to nothing, the
+    # true heartbeat was almost certainly sitting exactly on a respiration harmonic
+    # (heart rate = an integer multiple of the breathing rate) and got removed with it.
+    # In that degenerate case no frequency-domain method can separate the two; fall back
+    # to the naive answer instead of reporting a stray spectral-leakage bin.
+    if cleaned[band].max() < 0.05 * spectrum[band].max():
+        return estimate_heart_rate_naive(signal, fs)
+    return float(freqs[band][np.argmax(cleaned[band])]) * 60.0
 
 
 # ============================================================================

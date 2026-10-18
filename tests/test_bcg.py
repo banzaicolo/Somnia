@@ -107,3 +107,40 @@ def test_all_zero_signal_no_div_by_zero():
     assert bcg.estimate_heart_rate(sig) == 0.0
     flags, _ = bcg.detect_apnea(sig)
     assert flags == [False] * 6   # 6 windows of 10 s, all-zero energy, not flagged as pause
+
+
+# ============================================================================
+# harmonic removal: asymmetric breathing (the honest, non-self-grading test)
+# ============================================================================
+
+
+def test_heart_rate_harmonic_removal_recovers_true_rate():
+    """Asymmetric breathing leaks harmonics into the heartbeat band. The naive method
+    locks onto the 3rd breathing harmonic (45 bpm), while harmonic removal recovers 72 bpm."""
+    _, sig = bcg.simulate_bcg(duration_sec=60, resp_rate=15, heart_rate=72,
+                              noise_std=0, resp_asymmetry=1.0)
+    assert abs(bcg.estimate_heart_rate_naive(sig) - 45.0) < 1.0
+    assert abs(bcg.estimate_heart_rate(sig) - 72.0) < 1.0
+
+
+def test_heart_rate_harmonic_removal_with_noise():
+    """Harmonic removal still recovers the true rate when noise sits on top of asymmetric breathing."""
+    _, sig = bcg.simulate_bcg(duration_sec=60, resp_rate=15, heart_rate=72,
+                              noise_std=0.1, resp_asymmetry=1.0)
+    assert abs(bcg.estimate_heart_rate(sig) - 72.0) < 1.5
+
+
+def test_heart_rate_harmonic_removal_no_regression_on_pure_sine():
+    """On a pure sine (no harmonics) the new path must not regress the exact result."""
+    _, sig = bcg.simulate_bcg(duration_sec=60, resp_rate=15, heart_rate=72,
+                              noise_std=0, resp_asymmetry=0.0)
+    assert abs(bcg.estimate_heart_rate(sig) - 72.0) < 0.5
+
+
+def test_breathing_asymmetry_changes_waveform():
+    """An asymmetric breathing waveform must differ from a pure sine (proves harmonics exist)."""
+    _, s_pure = bcg.simulate_bcg(duration_sec=10, resp_rate=15, heart_rate=72,
+                                 noise_std=0, resp_asymmetry=0.0)
+    _, s_asym = bcg.simulate_bcg(duration_sec=10, resp_rate=15, heart_rate=72,
+                                 noise_std=0, resp_asymmetry=1.0)
+    assert not np.allclose(s_pure, s_asym)
